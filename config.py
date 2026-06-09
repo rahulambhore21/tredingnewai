@@ -15,7 +15,7 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 
 # Core instruments to trade
-INSTRUMENTS = ["XAUUSD"]
+INSTRUMENTS = ["XAUUSD", "EURUSD", "USDJPY", "BTCUSD"]
 
 # Optional broker-specific suffix appended to every symbol (e.g. ".r", ".m", "").
 # Set SYMBOL_SUFFIX="" if your broker uses plain names.
@@ -80,10 +80,11 @@ def is_trading_hours() -> bool:
 MIN_RR = 1.5
 
 # Maximum simultaneous open trades across all instruments
-MAX_OPEN_TRADES = 3
+MAX_OPEN_TRADES = 4
 
-# Pairs considered correlated; both cannot be open at the same time
-CORRELATED_PAIRS = []
+# Pairs considered correlated; both cannot be open at the same time.
+# EURUSD and USDJPY both carry USD exposure — block having both open.
+CORRELATED_PAIRS = [("EURUSD", "USDJPY")]
 
 # Daily realized-P&L gates (in account-currency dollars). New trades are
 # blocked once today's realized P&L reaches the profit target or breaches
@@ -94,6 +95,11 @@ DAILY_LOSS_LIMIT_USD    = 30.0
 # Target notional value per trade: volume ≈ FIXED_TRADE_USD / current_price
 FIXED_TRADE_USD = 10.0
 
+# For BTC at current prices (~$65k+), FIXED_TRADE_USD always computes a raw lot
+# far below volume_min (e.g. 0.000153 vs 0.01), so the notional formula is
+# pointless — this flag short-circuits it and sets lot = volume_min directly.
+USE_VOLUME_MIN_FLOOR = True
+
 # Lot-size safety bounds — used as a fallback floor/ceiling if broker symbol
 # info can't be read, and as a hard cap regardless of the computed volume
 LOT_MIN = 0.01
@@ -103,11 +109,30 @@ LOT_MAX = 0.10
 MIN_CONFIDENCE = 65
 
 # ---------------------------------------------------------------------------
+# Signal tracker — rolling performance gate
+# ---------------------------------------------------------------------------
+
+# Number of most-recent closed trades to track
+SIGNAL_TRACKER_WINDOW: int = 10
+
+# Win-rate threshold below which new signals are paused (0.0–1.0)
+SIGNAL_PAUSE_THRESHOLD: float = 0.3
+
+# ---------------------------------------------------------------------------
 # S/R zone parameters
 # ---------------------------------------------------------------------------
 
 # Price must be within this fraction of a zone centre to trigger ZoneTouchEvent
 ZONE_TOUCH_PCT = 0.001          # 0.1 %
+
+# Zone touch detection mode:
+#   "wick"  — trigger when the current bid/ask mid is within ZONE_TOUCH_PCT of the zone centre
+#   "close" — trigger when the last closed candle's close price is within the zone's price bounds
+ZONE_TOUCH_MODE: str = os.getenv("ZONE_TOUCH_MODE", "wick")
+if ZONE_TOUCH_MODE not in ("wick", "close"):
+    raise ValueError(
+        f"ZONE_TOUCH_MODE must be 'wick' or 'close', got {ZONE_TOUCH_MODE!r}"
+    )
 
 # Per-zone per-instrument cooldown in minutes to prevent repeated triggers
 ZONE_COOLDOWN_MIN = 15

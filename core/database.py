@@ -38,6 +38,11 @@ class Database:
         self._db_path = db_path
         # check_same_thread=False: we control thread safety via the write lock.
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        # WAL mode lets agent threads read concurrently while db_consumer writes;
+        # synchronous=NORMAL is safe here — a crash mid-write loses only the last
+        # transaction, not the whole database.
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.row_factory = sqlite3.Row      # rows accessible by column name
         self._write_lock = threading.Lock()
         self._create_tables()
@@ -362,16 +367,17 @@ class Database:
         Return all active S/R zones for *symbol* across all timeframes,
         sorted by strength descending (strongest zones first).
         """
-        cur = self._conn.cursor()
-        cur.execute(
-            """
-            SELECT * FROM zones
-            WHERE symbol=? AND is_active=1
-            ORDER BY strength DESC
-            """,
-            (symbol,),
-        )
-        return cur.fetchall()
+        with self._write_lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                SELECT * FROM zones
+                WHERE symbol=? AND is_active=1
+                ORDER BY strength DESC
+                """,
+                (symbol,),
+            )
+            return cur.fetchall()
 
     def get_last_zone_touch(self, symbol: str, zone_id: int) -> Optional[str]:
         """
@@ -380,20 +386,21 @@ class Database:
         Uses json_extract instead of LIKE so the query is robust to whitespace
         differences in JSON serialisation.
         """
-        cur = self._conn.cursor()
-        cur.execute(
-            """
-            SELECT created_at FROM events
-            WHERE event_type='zone_touch_event'
-              AND symbol=?
-              AND json_extract(payload, '$.zone_id') = ?
-            ORDER BY created_at DESC
-            LIMIT 1
-            """,
-            (symbol, zone_id),
-        )
-        row = cur.fetchone()
-        return row["created_at"] if row else None
+        with self._write_lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                SELECT created_at FROM events
+                WHERE event_type='zone_touch_event'
+                  AND symbol=?
+                  AND json_extract(payload, '$.zone_id') = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (symbol, zone_id),
+            )
+            row = cur.fetchone()
+            return row["created_at"] if row else None
 
     def get_today_realized_pnl(self) -> float:
         """
@@ -402,19 +409,20 @@ class Database:
         by trade_monitor / db_consumer when a position closes.
         """
         today = datetime.now(tz=timezone.utc).date().isoformat()
-        cur = self._conn.cursor()
-        cur.execute(
-            """
-            SELECT COALESCE(SUM(realized_pnl), 0.0)
-            FROM trades
-            WHERE dry_run=0
-              AND close_time IS NOT NULL
-              AND realized_pnl IS NOT NULL
-              AND DATE(close_time) = ?
-            """,
-            (today,),
-        )
-        row = cur.fetchone()
+        with self._write_lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                SELECT COALESCE(SUM(realized_pnl), 0.0)
+                FROM trades
+                WHERE dry_run=0
+                  AND close_time IS NOT NULL
+                  AND realized_pnl IS NOT NULL
+                  AND DATE(close_time) = ?
+                """,
+                (today,),
+            )
+            row = cur.fetchone()
         return float(row[0]) if row and row[0] is not None else 0.0
 
     def get_week_realized_pnl(self) -> float:
@@ -425,19 +433,20 @@ class Database:
         """
         now = datetime.now(tz=timezone.utc)
         week_start = (now - timedelta(days=now.weekday())).date().isoformat()
-        cur = self._conn.cursor()
-        cur.execute(
-            """
-            SELECT COALESCE(SUM(realized_pnl), 0.0)
-            FROM trades
-            WHERE dry_run=0
-              AND close_time IS NOT NULL
-              AND realized_pnl IS NOT NULL
-              AND DATE(close_time) >= ?
-            """,
-            (week_start,),
-        )
-        row = cur.fetchone()
+        with self._write_lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                SELECT COALESCE(SUM(realized_pnl), 0.0)
+                FROM trades
+                WHERE dry_run=0
+                  AND close_time IS NOT NULL
+                  AND realized_pnl IS NOT NULL
+                  AND DATE(close_time) >= ?
+                """,
+                (week_start,),
+            )
+            row = cur.fetchone()
         return float(row[0]) if row and row[0] is not None else 0.0
 
     def close(self) -> None:

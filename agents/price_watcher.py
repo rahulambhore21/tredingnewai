@@ -1,19 +1,18 @@
 """
-agents/price_watcher.py — Real-time price tick monitor.
+agents/price_watcher.py — Real-time price tick monitor (per-symbol instance).
 
 Responsibilities:
-1. Wait for sr_mapper to signal that zones are ready (zones_ready event).
-2. Poll live prices for all instruments every TICK_INTERVAL_SEC seconds.
-3. For each instrument, load active S/R zones from the DB.
+1. Wait for the matching SRMapper to signal that zones are ready.
+2. Poll the live price for the assigned symbol every TICK_INTERVAL_SEC seconds.
+3. Load active S/R zones for the symbol from the DB.
 4. If the current mid-price is within ZONE_TOUCH_PCT of a zone centre,
    and the zone has not been triggered within ZONE_COOLDOWN_MIN minutes
    (checked via an in-memory dict), publish a ZoneTouchEvent.
-5. Only act during the configured trading window (08:00–20:00 UTC, Mon–Fri).
 
 Thread model:
-    One daemon thread per watcher instance runs _run_loop().
+    One daemon thread per symbol instance runs _run_loop().
     Cooldown state is tracked in a dict:
-        { (symbol, zone_id): last_touch_utc_timestamp }
+        { zone_id: last_touch_utc_timestamp }
     This avoids DB reads in the hot loop for the cooldown check.
 """
 
@@ -35,13 +34,14 @@ logger = logging.getLogger(__name__)
 
 class PriceWatcher:
     """
-    Tick-level price monitor that triggers S/R zone touch events.
+    Tick-level price monitor for a single symbol that triggers S/R zone touch events.
 
     Injected dependencies:
         client:      Shared MT5Client (already connected).
         bus:         Shared EventBus for publishing ZoneTouchEvents.
         db:          Shared Database for reading active zones.
-        zones_ready: threading.Event from SRMapper — watcher blocks until set.
+        zones_ready: threading.Event from the matching SRMapper — watcher blocks until set.
+        symbol:      Base symbol this instance watches (e.g. "EURUSD").
     """
 
     # Lower number = higher priority when multiple timeframes' zones overlap
@@ -55,50 +55,44 @@ class PriceWatcher:
         bus: EventBus,
         db: Database,
         zones_ready: threading.Event,
+        symbol: str,
     ) -> None:
-        """
-        Initialise the price watcher.
-
-        Args:
-            client:      Connected MT5Client instance.
-            bus:         Shared EventBus.
-            db:          Shared Database (read-only from this agent).
-            zones_ready: Event set by SRMapper after the first zone scan.
-        """
         self._client      = client
         self._bus         = bus
         self._db          = db
         self._zones_ready = zones_ready
+        self._symbol      = symbol
 
-        # Cooldown tracker: key=(symbol_base, zone_id), value=last trigger time (float)
+        # Cooldown tracker: key=zone_id, value=last trigger time (float)
         self._last_touch: Dict[Tuple[str, int], float] = {}
         self._cooldown_sec = config.ZONE_COOLDOWN_MIN * 60
 
-        # Price-fetch failure suppression: log once, then silence for 5 min per symbol
-        self._price_fail_last_logged: Dict[str, float] = {}
+        # Price-fetch failure suppression: log once per 5 min on repeated errors
+        self._price_fail_last_logged: float = 0.0
         self._price_fail_log_interval = 300.0
 
         # Heartbeat: log alive status every 5 min even when no zones are touched
-        self._last_price: Dict[str, float] = {}
-        self._last_zone_count: Dict[str, int] = {}
+        self._last_price: Optional[float] = None
+        self._last_zone_count: Optional[int] = None
         self._last_heartbeat: float = 0.0
         self._heartbeat_interval_sec: float = 300.0
 
         self._stop_event = threading.Event()
         self._thread = threading.Thread(
             target=self._run_loop,
-            name="PriceWatcher",
+            name=f"PriceWatcher-{symbol}",
             daemon=True,
         )
+        self.last_heartbeat: float = time.time()
 
     def start(self) -> None:
         """Start the price watcher thread."""
-        logger.info("PriceWatcher starting …")
+        logger.info("PriceWatcher[%s] starting …", self._symbol)
         self._thread.start()
 
     def stop(self) -> None:
         """Signal the watcher to stop and wait for the thread to exit."""
-        logger.info("PriceWatcher stopping …")
+        logger.info("PriceWatcher[%s] stopping …", self._symbol)
         self._stop_event.set()
         self._thread.join(timeout=15)
 
@@ -108,10 +102,10 @@ class PriceWatcher:
             return
         self._stop_event.clear()
         self._thread = threading.Thread(
-            target=self._run_loop, name="PriceWatcher", daemon=True
+            target=self._run_loop, name=f"PriceWatcher-{self._symbol}", daemon=True
         )
         self._thread.start()
-        logger.warning("PriceWatcher thread restarted by watchdog.")
+        logger.warning("PriceWatcher[%s] thread restarted by watchdog.", self._symbol)
 
     # ------------------------------------------------------------------
     # Main loop
@@ -124,11 +118,12 @@ class PriceWatcher:
         2. Enter the tick poll loop (sleep TICK_INTERVAL_SEC between ticks).
         Every iteration is wrapped in try/except to prevent thread death.
         """
-        logger.info("PriceWatcher waiting for zones_ready …")
+        logger.info("PriceWatcher[%s] waiting for zones_ready …", self._symbol)
         self._zones_ready.wait()
-        logger.info("PriceWatcher zones ready — starting tick loop")
+        logger.info("PriceWatcher[%s] zones ready — starting tick loop", self._symbol)
 
         while not self._stop_event.is_set():
+            self.last_heartbeat = time.time()
             try:
                 if config.is_trading_hours():
                     self._tick()
@@ -140,14 +135,11 @@ class PriceWatcher:
             now = time.time()
             if (now - self._last_heartbeat) >= self._heartbeat_interval_sec:
                 self._last_heartbeat = now
-                parts = []
-                for sym in config.INSTRUMENTS:
-                    mid = self._last_price.get(sym)
-                    nz  = self._last_zone_count.get(sym)
-                    price_str = f"mid={mid:.5f}" if mid else "mid=n/a"
-                    zone_str  = f"{nz} zones" if nz is not None else "zones=n/a"
-                    parts.append(f"{sym} {price_str} {zone_str}")
-                logger.info("PriceWatcher alive — %s", " | ".join(parts))
+                mid = self._last_price
+                nz  = self._last_zone_count
+                price_str = f"mid={mid:.5f}" if mid is not None else "mid=n/a"
+                zone_str  = f"{nz} zones" if nz is not None else "zones=n/a"
+                logger.info("PriceWatcher[%s] alive — %s %s", self._symbol, price_str, zone_str)
 
             # Interruptible sleep
             self._stop_event.wait(timeout=config.TICK_INTERVAL_SEC)
@@ -157,15 +149,11 @@ class PriceWatcher:
     # ------------------------------------------------------------------
 
     def _tick(self) -> None:
-        """
-        Process one tick: for each instrument fetch price, check all active
-        zones, and publish ZoneTouchEvent if conditions are met.
-        """
-        for symbol_base in config.INSTRUMENTS:
-            try:
-                self._check_symbol(symbol_base)
-            except Exception:
-                logger.exception("PriceWatcher._check_symbol failed for %s", symbol_base)
+        """Fetch price for this instance's symbol and fire ZoneTouchEvents as needed."""
+        try:
+            self._check_symbol(self._symbol)
+        except Exception:
+            logger.exception("PriceWatcher._check_symbol failed for %s", self._symbol)
 
     def _check_symbol(self, symbol_base: str) -> None:
         """
@@ -181,10 +169,9 @@ class PriceWatcher:
             tick = self._client.market.get_symbol_price(symbol)
         except Exception as exc:
             now = time.time()
-            last = self._price_fail_last_logged.get(symbol_base, 0.0)
-            if (now - last) >= self._price_fail_log_interval:
+            if (now - self._price_fail_last_logged) >= self._price_fail_log_interval:
                 logger.warning("PriceWatcher: failed to get price for %s: %s", symbol, exc)
-                self._price_fail_last_logged[symbol_base] = now
+                self._price_fail_last_logged = now
             return
 
         bid = tick.get("bid", 0.0)
@@ -192,7 +179,7 @@ class PriceWatcher:
         if not bid or not ask:
             return
         mid = (bid + ask) / 2.0
-        self._last_price[symbol_base] = mid
+        self._last_price = mid
 
         # Load active zones from DB (read-only)
         try:
@@ -200,7 +187,7 @@ class PriceWatcher:
         except Exception:
             logger.exception("PriceWatcher: DB read failed for %s", symbol_base)
             return
-        self._last_zone_count[symbol_base] = len(zones)
+        self._last_zone_count = len(zones)
 
         # First-touch-wins selection across the M5/M15 timeframes:
         #   1. Keep only zones the current price is actually touching.
@@ -211,11 +198,31 @@ class PriceWatcher:
         #      The losing zone's cooldown is left untouched so it can still fire
         #      on its own later (e.g. once the M5 zone's cooldown elapses).
         touched_zones = []
-        for z in zones:
-            price_center = z["price_center"]
-            distance_pct = abs(mid - price_center) / price_center
-            if distance_pct <= config.ZONE_TOUCH_PCT:
-                touched_zones.append(z)
+        if config.ZONE_TOUCH_MODE == "close":
+            # Cache last closed-candle close per timeframe to avoid duplicate API calls
+            # within a single tick.  Candles are returned newest-first, so index 1 is
+            # the most recent *completed* candle (index 0 is the still-forming bar).
+            close_cache: Dict[str, Optional[float]] = {}
+            for z in zones:
+                tf = z["timeframe"]
+                if tf not in close_cache:
+                    try:
+                        df = self._client.market.get_candles_latest(symbol, tf, count=2)
+                        close_cache[tf] = float(df.iloc[1]["close"]) if len(df) >= 2 else None
+                    except Exception:
+                        logger.warning(
+                            "PriceWatcher: failed to fetch candle close for %s tf=%s", symbol, tf
+                        )
+                        close_cache[tf] = None
+                close_price = close_cache.get(tf)
+                if close_price is not None and z["price_lower"] <= close_price <= z["price_upper"]:
+                    touched_zones.append(z)
+        else:  # "wick" — existing behaviour: mid price within ZONE_TOUCH_PCT of zone centre
+            for z in zones:
+                price_center = z["price_center"]
+                distance_pct = abs(mid - price_center) / price_center
+                if distance_pct <= config.ZONE_TOUCH_PCT:
+                    touched_zones.append(z)
 
         if not touched_zones:
             return
@@ -266,11 +273,18 @@ class PriceWatcher:
 
             distance_pct = abs(mid - price_center) / price_center
 
-            logger.info(
-                "Zone touch: %s %s zone_id=%d tf=%s center=%.5f mid=%.5f dist=%.4f%%",
-                symbol_base, zone_type, zone_id, timeframe, price_center, mid,
-                distance_pct * 100,
-            )
+            if config.ZONE_TOUCH_MODE == "close":
+                logger.info(
+                    "Zone touch (close): %s %s zone_id=%d tf=%s bounds=[%.5f,%.5f] mid=%.5f dist=%.4f%%",
+                    symbol_base, zone_type, zone_id, timeframe,
+                    zone["price_lower"], zone["price_upper"], mid, distance_pct * 100,
+                )
+            else:
+                logger.info(
+                    "Zone touch (wick): %s %s zone_id=%d tf=%s center=%.5f mid=%.5f dist=%.4f%%",
+                    symbol_base, zone_type, zone_id, timeframe, price_center, mid,
+                    distance_pct * 100,
+                )
 
             try:
                 event = ZoneTouchEvent(

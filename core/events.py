@@ -64,6 +64,21 @@ class ZoneEvent(Event):
     is_active: bool = True           # False once price has closed through it
 
 
+class ZonesRefreshedEvent(Event):
+    """
+    Emitted by sr_mapper after publishing a fresh batch of ZoneEvents for a
+    symbol+timeframe.  db_consumer handles the deactivate_zones_before() call
+    so sr_mapper never writes to the DB directly.
+    """
+
+    event_type: str = "zones_refreshed_event"
+
+    symbol: str                          # base symbol, e.g. "XAUUSD"
+    timeframe: str                       # MT5 timeframe string, e.g. "H1"
+    refreshed_at: datetime               # UTC wall-clock time of the scan
+    zones_deactivated_before: datetime   # cut-off: deactivate zones older than this
+
+
 class ZoneTouchEvent(Event):
     """
     Emitted by price_watcher when the live price enters a stored S/R zone.

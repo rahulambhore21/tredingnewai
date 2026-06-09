@@ -1,8 +1,8 @@
 """
-agents/sr_mapper.py — Support & Resistance zone mapper.
+agents/sr_mapper.py — Support & Resistance zone mapper (per-symbol instance).
 
 Responsibilities:
-1. On startup: scan all configured timeframes for every instrument,
+1. On startup: scan all configured timeframes for the assigned symbol,
    detect swing highs/lows, cluster them into S/R zones, deactivate old
    zones in the DB, and publish ZoneEvent for each new zone so db_consumer
    stores them.
@@ -12,9 +12,9 @@ Responsibilities:
    complete before the watcher starts.
 
 Thread model:
-    One daemon thread (self._thread) runs _run_loop(), which calls _scan_all()
-    immediately, then sleeps ZONE_REFRESH_HOURS * 3600 before repeating.
-    The price_watcher blocks on self.zones_ready until the first scan is done.
+    One daemon thread per symbol instance (self._thread) runs _run_loop(),
+    which calls _scan_all() immediately, then sleeps ZONE_REFRESH_HOURS * 3600
+    before repeating. The matching PriceWatcher blocks on self.zones_ready.
 """
 
 import logging
@@ -28,7 +28,7 @@ from metatrader_client import MT5Client
 import config
 from core.database import Database
 from core.event_bus import EventBus
-from core.events import ZoneEvent
+from core.events import ZoneEvent, ZonesRefreshedEvent
 from indicators.calculator import find_swing_highs_lows, cluster_zones
 
 logger = logging.getLogger(__name__)
@@ -36,45 +36,40 @@ logger = logging.getLogger(__name__)
 
 class SRMapper:
     """
-    S/R zone scanner and publisher.
+    S/R zone scanner and publisher for a single symbol.
 
     Injected dependencies:
         client: Shared MT5Client (already connected).
         bus:    Shared EventBus for publishing ZoneEvents.
         db:     Shared Database for deactivating stale zones before refresh.
+        symbol: Base symbol this instance is responsible for (e.g. "EURUSD").
     """
 
-    def __init__(self, client: MT5Client, bus: EventBus, db: Database) -> None:
-        """
-        Initialise the mapper.
-
-        Args:
-            client: Connected MT5Client instance.
-            bus:    Shared EventBus.
-            db:     Shared Database (read deactivate helper only — writes go via bus).
-        """
+    def __init__(self, client: MT5Client, bus: EventBus, db: Database, symbol: str) -> None:
         self._client = client
         self._bus    = bus
         self._db     = db
+        self._symbol = symbol
 
-        # price_watcher blocks on this until the first zone scan completes
+        # Matching PriceWatcher blocks on this until the first zone scan completes
         self.zones_ready = threading.Event()
 
         self._stop_event = threading.Event()
         self._thread = threading.Thread(
             target=self._run_loop,
-            name="SRMapper",
+            name=f"SRMapper-{symbol}",
             daemon=True,
         )
+        self.last_heartbeat: float = time.time()
 
     def start(self) -> None:
         """Start the background mapper thread."""
-        logger.info("SRMapper starting …")
+        logger.info("SRMapper[%s] starting …", self._symbol)
         self._thread.start()
 
     def stop(self) -> None:
         """Signal the mapper to stop and wait for the thread to exit."""
-        logger.info("SRMapper stopping …")
+        logger.info("SRMapper[%s] stopping …", self._symbol)
         self._stop_event.set()
         self._thread.join(timeout=30)
 
@@ -84,10 +79,10 @@ class SRMapper:
             return
         self._stop_event.clear()
         self._thread = threading.Thread(
-            target=self._run_loop, name="SRMapper", daemon=True
+            target=self._run_loop, name=f"SRMapper-{self._symbol}", daemon=True
         )
         self._thread.start()
-        logger.warning("SRMapper thread restarted by watchdog.")
+        logger.warning("SRMapper[%s] thread restarted by watchdog.", self._symbol)
 
     # ------------------------------------------------------------------
     # Main loop
@@ -100,6 +95,7 @@ class SRMapper:
         (e.g. network blip) never kills the thread.
         """
         while not self._stop_event.is_set():
+            self.last_heartbeat = time.time()
             try:
                 self._scan_all()
                 self.zones_ready.set()      # unblock price_watcher
@@ -113,6 +109,7 @@ class SRMapper:
             while elapsed < interval_sec and not self._stop_event.is_set():
                 time.sleep(30)
                 elapsed += 30
+                self.last_heartbeat = time.time()
 
     # ------------------------------------------------------------------
     # Zone scanning
@@ -120,24 +117,22 @@ class SRMapper:
 
     def _scan_all(self) -> None:
         """
-        Scan every instrument × timeframe combination and publish ZoneEvents.
-        The db_consumer handles DB writes when it receives the events.
+        Scan all configured timeframes for this instance's symbol and publish ZoneEvents.
         """
-        logger.info("SRMapper starting zone scan …")
+        logger.info("SRMapper[%s] starting zone scan …", self._symbol)
         total_zones = 0
 
-        for symbol_base in config.INSTRUMENTS:
-            symbol = config.resolve_symbol(symbol_base)
-            for tf in config.SR_TIMEFRAMES:
-                try:
-                    zones = self._scan_symbol_tf(symbol, symbol_base, tf)
-                    total_zones += zones
-                except Exception:
-                    logger.exception(
-                        "SRMapper._scan_symbol_tf failed for %s %s — skipping", symbol, tf
-                    )
+        symbol = config.resolve_symbol(self._symbol)
+        for tf in config.SR_TIMEFRAMES:
+            try:
+                zones = self._scan_symbol_tf(symbol, self._symbol, tf)
+                total_zones += zones
+            except Exception:
+                logger.exception(
+                    "SRMapper._scan_symbol_tf failed for %s %s — skipping", symbol, tf
+                )
 
-        logger.info("SRMapper zone scan complete. Published %d zones.", total_zones)
+        logger.info("SRMapper[%s] zone scan complete. Published %d zones.", self._symbol, total_zones)
 
     def _scan_symbol_tf(self, symbol: str, symbol_base: str, tf: str) -> int:
         """
@@ -199,8 +194,13 @@ class SRMapper:
             except Exception:
                 logger.exception("Failed to publish ZoneEvent for %s %s", symbol_base, tf)
 
-        # Deactivate stale zones (created before this scan) now that fresh ones are in DB
-        self._db.deactivate_zones_before(symbol_base, tf, scan_start)
+        # Emit ZonesRefreshedEvent — db_consumer calls deactivate_zones_before() on receipt
+        self._bus.publish(ZonesRefreshedEvent(
+            symbol=symbol_base,
+            timeframe=tf,
+            refreshed_at=datetime.now(tz=timezone.utc),
+            zones_deactivated_before=datetime.fromisoformat(scan_start),
+        ))
 
         logger.info(
             "%s %s: published %d zones (%d resistance, %d support)",

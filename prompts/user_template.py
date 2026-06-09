@@ -6,7 +6,7 @@ string that accompanies the system prompt.  Keeping prompt construction here
 makes it easy to iterate on the wording without touching agent logic.
 """
 
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 
 def build_user_prompt(
@@ -16,6 +16,7 @@ def build_user_prompt(
     recent_candles: list,
     price: Dict,
     analysis_tf: str = "M5",
+    h4_candles: Optional[List[Dict]] = None,
 ) -> str:
     """
     Construct the user-turn prompt for GPT-4o signal generation.
@@ -32,6 +33,9 @@ def build_user_prompt(
         price:          Dict with keys: bid, ask, mid_price (current live price).
         analysis_tf:    Timeframe label the candles/indicators were computed on
                         (e.g. "M5" or "M15") — the timeframe of the touched zone.
+        h4_candles:     Optional list of the 10 most-recent H4 candle dicts
+                        (time, open, high, low, close, volume) for HTF context.
+                        Entries are in ascending time order (oldest first).
 
     Returns:
         str: Formatted user prompt string ready to send to OpenAI.
@@ -64,6 +68,16 @@ def build_user_prompt(
             f"H:{c.get('high', 0):.5f} L:{c.get('low', 0):.5f} C:{c.get('close', 0):.5f}"
         )
     candles_section = "\n".join(candle_lines) if candle_lines else "  (no candle data)"
+
+    # --- H4 candles (last 10, formatted) ---
+    h4_lines = []
+    for c in (h4_candles or [])[-10:]:
+        h4_lines.append(
+            f"  {c.get('time', '')} | O:{c.get('open', 0):.5f} "
+            f"H:{c.get('high', 0):.5f} L:{c.get('low', 0):.5f} C:{c.get('close', 0):.5f} "
+            f"V:{c.get('volume', 0):.2f}"
+        )
+    h4_section = "\n".join(h4_lines) if h4_lines else "  (no H4 data available)"
 
     # --- Trend summary helper ---
     trend_label = "BULLISH" if ema21 > ema50 else "BEARISH"
@@ -99,6 +113,10 @@ def build_user_prompt(
 
 ## Recent Price Action (last 5 {analysis_tf} candles, ascending)
 {candles_section}
+
+## Higher Timeframe Context (H4)
+Last 10 H4 candles (ascending, oldest first):
+{h4_section}
 
 ## Task
 Price has just touched the {zone_type.upper()} zone at {zone_center:.5f} for {symbol}.

@@ -23,6 +23,7 @@ Toggle dry-run:
 """
 
 import logging
+import logging.handlers
 import sys
 import time
 
@@ -30,6 +31,7 @@ import config
 from core.database import Database
 from core.event_bus import EventBus
 from core.db_consumer import DBConsumer
+from core.signal_tracker import SignalTracker
 from agents.sr_mapper import SRMapper
 from agents.price_watcher import PriceWatcher
 from agents.analysis_agent import AnalysisAgent
@@ -56,7 +58,12 @@ def configure_logging() -> None:
         datefmt=datefmt,
         handlers=[
             logging.StreamHandler(sys.stdout),
-            logging.FileHandler("trading_bot.log", encoding="utf-8"),
+            logging.handlers.RotatingFileHandler(
+                "trading_bot.log",
+                maxBytes=5 * 1024 * 1024,
+                backupCount=5,
+                encoding="utf-8",
+            ),
         ],
     )
     # Quieten noisy third-party libraries
@@ -136,30 +143,57 @@ def main() -> None:
     bus      = EventBus()
     consumer = DBConsumer(db, bus)           # wires all subscriptions
 
-    # --- Agents ---
-    sr_mapper     = SRMapper(client, bus, db)
-    price_watcher = PriceWatcher(client, bus, db, zones_ready=sr_mapper.zones_ready)
-    analysis      = AnalysisAgent(client, bus)   # subscribes to ZoneTouchEvent
+    # --- Per-symbol agents (one thread each) ---
+    signal_tracker = SignalTracker()
+    sr_mappers:     dict = {}
+    price_watchers: dict = {}
+    analyses:       dict = {}
+
+    for sym in config.INSTRUMENTS:
+        sr_mappers[sym]     = SRMapper(client, bus, db, symbol=sym)
+        price_watchers[sym] = PriceWatcher(
+            client, bus, db,
+            zones_ready=sr_mappers[sym].zones_ready,
+            symbol=sym,
+        )
+        analyses[sym] = AnalysisAgent(
+            client, bus, symbol=sym,
+            signal_tracker=signal_tracker,
+        )
+
+    # --- Shared agents (event-driven, symbol-agnostic) ---
     risk          = RiskAgent(client, bus, db)   # subscribes to SignalGeneratedEvent
     executor      = Executor(client, bus)        # subscribes to RiskEvaluatedEvent
-    trade_monitor = TradeMonitor(client, bus)    # subscribes to TradeExecutedEvent
+    trade_monitor = TradeMonitor(client, bus, signal_tracker=signal_tracker)
 
     # --- Start threads ---
-    sr_mapper.start()       # scans zones immediately; sets zones_ready on completion
-    price_watcher.start()   # waits for zones_ready internally before entering tick loop
-    analysis.start()        # dedicated thread so GPT calls don't block the tick loop
-    trade_monitor.start()   # polls for closed positions every 30 s
+    for sym in config.INSTRUMENTS:
+        sr_mappers[sym].start()       # scans zones; sets zones_ready per symbol
+        price_watchers[sym].start()   # waits for its symbol's zones_ready
+        analyses[sym].start()         # dedicated GPT thread per symbol
 
-    logger.info("All threads started. Bot is running. Press Ctrl+C to stop.")
+    trade_monitor.start()   # polls all open positions every 30 s
+
+    logger.info(
+        "All threads started (%d symbols × 3 threads + TradeMonitor). Bot is running."
+        " Press Ctrl+C to stop.",
+        len(config.INSTRUMENTS),
+    )
     logger.info("Trading hours enforcement: disabled — bot may trade any time")
 
-    # --- Main thread: keep alive, monitor health ---
-    _WATCHDOG_AGENTS = [
-        (sr_mapper,     "SRMapper"),
-        (price_watcher, "PriceWatcher"),
-        (analysis,      "AnalysisAgent"),
-        (trade_monitor, "TradeMonitor"),
-    ]
+    # --- Watchdog setup ---
+    _WATCHDOG_AGENTS = []
+    _HEARTBEAT_THRESHOLDS = {}
+    for sym in config.INSTRUMENTS:
+        _WATCHDOG_AGENTS.append((sr_mappers[sym],     f"SRMapper-{sym}"))
+        _WATCHDOG_AGENTS.append((price_watchers[sym], f"PriceWatcher-{sym}"))
+        _WATCHDOG_AGENTS.append((analyses[sym],       f"AnalysisAgent-{sym}"))
+        _HEARTBEAT_THRESHOLDS[f"SRMapper-{sym}"]     = 150
+        _HEARTBEAT_THRESHOLDS[f"PriceWatcher-{sym}"] = config.TICK_INTERVAL_SEC * 5
+        _HEARTBEAT_THRESHOLDS[f"AnalysisAgent-{sym}"] = 60
+    _WATCHDOG_AGENTS.append((trade_monitor, "TradeMonitor"))
+    _HEARTBEAT_THRESHOLDS["TradeMonitor"] = 150
+
     _last_heartbeat = time.time()
 
     try:
@@ -179,6 +213,18 @@ def main() -> None:
                 except Exception:
                     logger.exception("MT5 reconnect failed — will retry next cycle")
 
+            # Heartbeat staleness check — alert if any agent loop has gone silent
+            now = time.time()
+            for agent_obj, label in _WATCHDOG_AGENTS:
+                threshold = _HEARTBEAT_THRESHOLDS.get(label, 150)
+                stale_sec = now - getattr(agent_obj, "last_heartbeat", now)
+                if stale_sec > threshold:
+                    logger.critical(
+                        "HEARTBEAT STALE: %s has not updated its heartbeat for %.0f s"
+                        " (threshold %.0f s) — agent may be stuck",
+                        label, stale_sec, threshold,
+                    )
+
             # Thread watchdog — restart any dead agent threads
             for agent_obj, label in _WATCHDOG_AGENTS:
                 if not agent_obj._thread.is_alive():
@@ -188,23 +234,27 @@ def main() -> None:
             # Heartbeat log every 5 minutes
             now = time.time()
             if (now - _last_heartbeat) >= 300:
-                logger.info(
-                    "Heartbeat — sr_mapper=%s  price_watcher=%s  analysis=%s  trade_monitor=%s",
-                    sr_mapper._thread.is_alive(),
-                    price_watcher._thread.is_alive(),
-                    analysis._thread.is_alive(),
-                    trade_monitor._thread.is_alive(),
-                )
+                for sym in config.INSTRUMENTS:
+                    logger.info(
+                        "Heartbeat[%s] — sr_mapper=%s  price_watcher=%s  analysis=%s",
+                        sym,
+                        sr_mappers[sym]._thread.is_alive(),
+                        price_watchers[sym]._thread.is_alive(),
+                        analyses[sym]._thread.is_alive(),
+                    )
+                logger.info("Heartbeat — trade_monitor=%s", trade_monitor._thread.is_alive())
                 _last_heartbeat = now
 
     except KeyboardInterrupt:
         logger.info("KeyboardInterrupt received — shutting down gracefully …")
 
     # --- Shutdown ---
-    analysis.stop()
+    for sym in config.INSTRUMENTS:
+        analyses[sym].stop()
     trade_monitor.stop()
-    price_watcher.stop()
-    sr_mapper.stop()
+    for sym in config.INSTRUMENTS:
+        price_watchers[sym].stop()
+        sr_mappers[sym].stop()
 
     try:
         client.disconnect()

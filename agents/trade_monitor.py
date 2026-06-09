@@ -25,6 +25,7 @@ from metatrader_client import MT5Client
 
 from core.event_bus import EventBus
 from core.events import TradeClosedEvent, TradeExecutedEvent
+from core.signal_tracker import SignalTracker
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +41,15 @@ class TradeMonitor:
         bus:    Shared EventBus for subscribing and publishing.
     """
 
-    def __init__(self, client: MT5Client, bus: EventBus) -> None:
-        self._client = client
-        self._bus    = bus
+    def __init__(
+        self,
+        client: MT5Client,
+        bus: EventBus,
+        signal_tracker: Optional[SignalTracker] = None,
+    ) -> None:
+        self._client  = client
+        self._bus     = bus
+        self._tracker = signal_tracker
 
         # position_id → {symbol, direction, volume, entry_price, sl, tp}
         self._tracked: Dict[int, Dict] = {}
@@ -54,6 +61,7 @@ class TradeMonitor:
             name="TradeMonitor",
             daemon=True,
         )
+        self.last_heartbeat: float = time.time()
 
         self._bus.subscribe(TradeExecutedEvent, self._on_trade_executed)
 
@@ -104,6 +112,7 @@ class TradeMonitor:
 
     def _run_loop(self) -> None:
         while not self._stop_event.is_set():
+            self.last_heartbeat = time.time()
             try:
                 self._check_closed_positions()
             except Exception:
@@ -153,6 +162,9 @@ class TradeMonitor:
             f"{close_price:.5f}" if close_price else "unknown",
             realized_pnl,
         )
+
+        if self._tracker is not None:
+            self._tracker.record_result(position_id, won=realized_pnl > 0)
 
         self._bus.publish(
             TradeClosedEvent(

@@ -6,7 +6,7 @@ Runs 6 independent risk checks; publishes RiskEvaluatedEvent with
 approved=True/False and the computed lot size.
 
 Checks (all must pass for approval):
-    1. R:R >= MIN_RR (1.5) — computed from entry/stop_loss/take_profit.
+    1. R:R >= MIN_RR (1.2) — computed from entry/stop_loss/take_profit.
     2. Open trades <= MAX_OPEN_TRADES (3) — via get_all_positions().
     3. No correlated pair both open (see CORRELATED_PAIRS — empty for single-instrument mode).
     4. Today's realised P&L stays within [-DAILY_LOSS_LIMIT_USD, +DAILY_PROFIT_TARGET_USD]
@@ -318,24 +318,33 @@ class RiskAgent:
             )
             return config.LOT_MIN
 
-        vol_min       = config.LOT_MIN
-        vol_max       = config.LOT_MAX
-        vol_step      = config.LOT_MIN
-        contract_size = 1.0
+        vol_min = config.LOT_MIN
+        vol_max = config.LOT_MAX
         try:
-            info = self._client.market.get_symbol_info(config.resolve_symbol(symbol))
-            vol_min       = float(info.get("volume_min",          config.LOT_MIN)) or config.LOT_MIN
-            vol_max       = float(info.get("volume_max",          config.LOT_MAX)) or config.LOT_MAX
-            vol_step      = float(info.get("volume_step",         vol_min))         or vol_min
-            contract_size = float(info.get("trade_contract_size", 1.0))             or 1.0
+            info    = self._client.market.get_symbol_info(config.resolve_symbol(symbol))
+            vol_min = float(info.get("volume_min", config.LOT_MIN)) or config.LOT_MIN
+            vol_max = float(info.get("volume_max", config.LOT_MAX)) or config.LOT_MAX
         except Exception:
             logger.warning(
                 "RiskAgent: get_symbol_info failed for %s — using config defaults",
                 symbol,
             )
 
-        raw_lot = config.FIXED_TRADE_USD / (entry * contract_size)
+        if config.USE_VOLUME_MIN_FLOOR:
+            volume = round(vol_min, 5)
+            logger.debug("USE_VOLUME_MIN_FLOOR active, setting lot to %s", volume)
+            return volume
 
+        vol_step      = vol_min
+        contract_size = 1.0
+        try:
+            info          = self._client.market.get_symbol_info(config.resolve_symbol(symbol))
+            vol_step      = float(info.get("volume_step",         vol_min)) or vol_min
+            contract_size = float(info.get("trade_contract_size", 1.0))     or 1.0
+        except Exception:
+            pass  # already warned above
+
+        raw_lot = config.FIXED_TRADE_USD / (entry * contract_size)
         if vol_step > 0:
             volume = math.floor(raw_lot / vol_step) * vol_step
         else:

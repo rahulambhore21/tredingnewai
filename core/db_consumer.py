@@ -19,9 +19,11 @@ from typing import Any, Dict
 
 from core.database import Database
 from core.event_bus import EventBus
+from core.notifier import Notifier
 from core.events import (
     Event,
     ZoneEvent,
+    ZonesRefreshedEvent,
     ZoneTouchEvent,
     SignalGeneratedEvent,
     RiskEvaluatedEvent,
@@ -62,6 +64,7 @@ class DBConsumer:
         """
         self._db = db
         self._bus = bus
+        self._notifier = Notifier()
         # Tracks the most recent signal DB id per symbol for risk_decision linkage
         self._last_signal_id: Dict[str, int] = {}
         self._wire_subscriptions()
@@ -70,6 +73,7 @@ class DBConsumer:
     def _wire_subscriptions(self) -> None:
         """Register all event handlers on the EventBus."""
         self._bus.subscribe(ZoneEvent, self._on_zone_event)
+        self._bus.subscribe(ZonesRefreshedEvent, self._on_zones_refreshed)
         self._bus.subscribe(ZoneTouchEvent, self._on_zone_touch)
         self._bus.subscribe(SignalGeneratedEvent, self._on_signal)
         self._bus.subscribe(RiskEvaluatedEvent, self._on_risk)
@@ -81,11 +85,7 @@ class DBConsumer:
     # ------------------------------------------------------------------
 
     def _on_zone_event(self, event: ZoneEvent) -> None:
-        """
-        Persist a newly computed S/R zone to the zones table and log to events.
-        The sr_mapper calls deactivate_zones_for_symbol() before publishing the
-        fresh batch, so we just INSERT here.
-        """
+        """Persist a newly computed S/R zone to the zones table and log to events."""
         try:
             self._db.insert_zone(
                 symbol=event.symbol,
@@ -108,6 +108,27 @@ class DBConsumer:
             )
         except Exception:
             logger.exception("DBConsumer._on_zone_event failed for %s", event)
+
+    # ------------------------------------------------------------------
+    # ZonesRefreshedEvent — sr_mapper finished publishing a fresh batch
+    # ------------------------------------------------------------------
+
+    def _on_zones_refreshed(self, event: ZonesRefreshedEvent) -> None:
+        """Deactivate stale zones now that the fresh batch has been inserted."""
+        try:
+            cutoff = event.zones_deactivated_before.isoformat()
+            self._db.deactivate_zones_before(event.symbol, event.timeframe, cutoff)
+            self._db.insert_event_log(
+                event_type=event.event_type,
+                symbol=event.symbol,
+                payload=_to_json(event),
+            )
+            logger.debug(
+                "Zones deactivated for %s %s before %s",
+                event.symbol, event.timeframe, cutoff,
+            )
+        except Exception:
+            logger.exception("DBConsumer._on_zones_refreshed failed for %s", event)
 
     # ------------------------------------------------------------------
     # ZoneTouchEvent — price entered a zone
@@ -223,6 +244,11 @@ class DBConsumer:
                 "Trade persisted: %s %s vol=%.2f success=%s order_id=%s",
                 event.symbol, event.direction, event.volume, event.success, event.order_id,
             )
+            self._notifier.send(
+                f"✅ Trade Executed: {event.symbol} {event.direction} | "
+                f"Entry: {event.entry} | SL: {event.stop_loss} | "
+                f"TP: {event.take_profit} | Lot: {event.volume}"
+            )
         except Exception:
             logger.exception("DBConsumer._on_trade failed for %s", event)
 
@@ -246,6 +272,11 @@ class DBConsumer:
             logger.info(
                 "Trade close persisted: order_id=%d %s %s pnl=%.2f",
                 event.order_id, event.symbol, event.direction, event.realized_pnl or 0.0,
+            )
+            close_reason = getattr(event, "close_reason", "unknown")
+            self._notifier.send(
+                f"🔴 Trade Closed: {event.symbol} | "
+                f"P&L: {event.realized_pnl} | Reason: {close_reason}"
             )
         except Exception:
             logger.exception("DBConsumer._on_trade_closed failed for %s", event)

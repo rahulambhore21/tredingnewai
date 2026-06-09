@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trading Bot Monitor</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <span class="logo">▶</span>
+    <span class="title">TRADING BOT MONITOR</span>
+  </div>
+  <div class="header-right">
+    <span class="live-badge">
+      <span class="dot amber" id="status-dot">●</span>
+      <span id="status-text">connecting</span>
+    </span>
+    <span id="clock" class="clock">--:--:-- UTC</span>
+  </div>
+</header>
+
+<div class="grid-main">
+
+  <!-- ── Signal Funnel ───────────────────────────────────────────────── -->
+  <section class="card funnel-card">
+    <div class="card-header">SIGNAL FUNNEL</div>
+    <div id="funnel-data" class="loading">Loading…</div>
+  </section>
+
+  <!-- ── P&L ─────────────────────────────────────────────────────────── -->
+  <section class="card pnl-card">
+    <div class="card-header">P&amp;L</div>
+    <div id="pnl-data" class="loading">Loading…</div>
+  </section>
+
+  <!-- ── Agent Health ─────────────────────────────────────────────────── -->
+  <section class="card health-card">
+    <div class="card-header">AGENT HEALTH</div>
+    <div id="health-data" class="loading">Loading…</div>
+  </section>
+
+  <!-- ── Recent Trades ────────────────────────────────────────────────── -->
+  <section class="card trades-card">
+    <div class="card-header">RECENT TRADES</div>
+    <div id="trades-data" class="loading">Loading…</div>
+  </section>
+
+  <!-- ── Risk Gate Rejections ─────────────────────────────────────────── -->
+  <section class="card rejections-card">
+    <div class="card-header">RISK GATE REJECTIONS</div>
+    <div id="rejections-data" class="loading">Loading…</div>
+  </section>
+
+  <!-- ── Live Log Tail ────────────────────────────────────────────────── -->
+  <section class="card logs-card">
+    <div class="card-header clickable" id="logs-toggle">
+      <span id="logs-chevron">▼</span>
+      LIVE LOG TAIL
+      <span class="muted small" id="log-path-label"></span>
+    </div>
+    <div id="logs-container">
+      <div id="logs-data" class="logs-body">Loading…</div>
+    </div>
+  </section>
+
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
