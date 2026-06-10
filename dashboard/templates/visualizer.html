@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trading Bot — S/R Visualizer Chart</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .visualizer-container {
+      display: grid;
+      grid-template-columns: 3fr 1.2fr;
+      gap: 12px;
+      padding: 12px;
+      height: calc(100vh - 50px);
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+
+    .chart-panel {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    .control-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 8px;
+    }
+
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .control-group label {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    .control-group select {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 4px 8px;
+      border-radius: var(--radius);
+      font-family: var(--font);
+      font-size: 12px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .control-group select:focus {
+      border-color: var(--amber);
+    }
+
+    .btn-refresh {
+      background: var(--amber-dim);
+      color: var(--amber);
+      border: 1px solid var(--amber);
+      padding: 4px 12px;
+      border-radius: var(--radius);
+      font-family: var(--font);
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-left: auto;
+    }
+
+    .btn-refresh:hover {
+      background: rgba(245, 166, 35, 0.25);
+    }
+
+    .chart-container-wrapper {
+      flex: 1;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      position: relative;
+      overflow: hidden;
+      min-height: 400px;
+    }
+
+    .chart-container {
+      width: 100%;
+      height: 100%;
+    }
+
+    .details-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .details-header {
+      padding: 10px 14px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      color: var(--amber);
+      border-bottom: 1px solid var(--border);
+      background: var(--amber-dim);
+    }
+
+    .details-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px;
+      line-height: 1.6;
+      font-size: 12px;
+    }
+
+    .detail-section {
+      margin-bottom: 15px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(48, 54, 61, 0.4);
+    }
+
+    .detail-section:last-child {
+      border-bottom: none;
+    }
+
+    .detail-title {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: var(--amber);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    .detail-label {
+      color: var(--muted);
+    }
+
+    .detail-value {
+      font-weight: bold;
+    }
+
+    .gpt-reasoning {
+      background: rgba(0, 0, 0, 0.3);
+      border-left: 3px solid var(--amber);
+      padding: 8px 12px;
+      margin: 8px 0;
+      font-family: var(--font);
+      font-size: 11px;
+      white-space: pre-wrap;
+      border-radius: 0 var(--radius) var(--radius) 0;
+      color: var(--text);
+    }
+
+    .check-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-top: 6px;
+    }
+
+    .check-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(0, 0, 0, 0.15);
+      padding: 4px 8px;
+      border-radius: 3px;
+    }
+
+    .indicator-pill-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .indicator-pill {
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 6px;
+      text-align: center;
+    }
+
+    .indicator-pill .name {
+      font-size: 9px;
+      color: var(--muted);
+      margin-bottom: 2px;
+    }
+
+    .indicator-pill .val {
+      font-size: 12px;
+      font-weight: bold;
+    }
+
+    .legend-overlay {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(13, 17, 23, 0.85);
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+      border-radius: var(--radius);
+      z-index: 10;
+      pointer-events: none;
+      font-size: 11px;
+    }
+
+    .legend-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .legend-color {
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+    }
+
+    .no-selection {
+      color: var(--muted);
+      text-align: center;
+      padding-top: 40px;
+      font-style: italic;
+    }
+
+    @media (max-width: 900px) {
+      .visualizer-container {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+      .chart-container-wrapper {
+        height: 500px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <span class="logo">▶</span>
+    <span class="title">TRADING BOT MONITOR</span>
+  </div>
+  <div class="nav">
+    <a href="/">Dashboard</a>
+    <a href="/debug">Debug</a>
+    <a href="/visualizer" class="active">Visualizer</a>
+  </div>
+  <div class="header-right">
+    <span class="live-badge">
+      <span class="dot amber" id="status-dot">●</span>
+      <span id="status-text">connecting</span>
+    </span>
+    <span id="clock" class="clock">--:--:-- UTC</span>
+  </div>
+</header>
+
+<div class="visualizer-container">
+  
+  <!-- Chart Side -->
+  <div class="chart-panel">
+    <div class="control-bar">
+      <div class="control-group">
+        <label for="symbol-select">SYMBOL:</label>
+        <select id="symbol-select">
+          <option value="XAUUSD">XAUUSD (Gold)</option>
+          <option value="EURUSD" selected>EURUSD</option>
+          <option value="USDJPY">USDJPY</option>
+          <option value="BTCUSD">BTCUSD (Bitcoin)</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label for="tf-select">TIMEFRAME:</label>
+        <select id="tf-select">
+          <option value="M5" selected>5m (M5)</option>
+          <option value="M15">15m (M15)</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label for="candle-count">CANDLES:</label>
+        <select id="candle-count">
+          <option value="100">100</option>
+          <option value="150" selected>150</option>
+          <option value="200">200</option>
+          <option value="300">300</option>
+        </select>
+      </div>
+      <button class="btn-refresh" id="btn-reload">RELOAD DATA</button>
+    </div>
+
+    <div class="chart-container-wrapper">
+      <div class="legend-overlay">
+        <div class="legend-row">
+          <div class="legend-color" style="background: rgba(63, 185, 80, 0.4); border: 1px solid var(--green)"></div>
+          <span>Support Zone</span>
+        </div>
+        <div class="legend-row">
+          <div class="legend-color" style="background: rgba(248, 81, 73, 0.4); border: 1px solid var(--red)"></div>
+          <span>Resistance Zone</span>
+        </div>
+        <div class="legend-row">
+          <span style="color: var(--green); font-weight: bold; margin-right: 4px;">▲</span>
+          <span>Buy Order (Filled)</span>
+        </div>
+        <div class="legend-row">
+          <span style="color: var(--red); font-weight: bold; margin-right: 4px;">▼</span>
+          <span>Sell Order (Filled)</span>
+        </div>
+        <div class="legend-row">
+          <span style="color: var(--yellow); font-weight: bold; margin-right: 4px;">●</span>
+          <span>Risk Gate Rejection</span>
+        </div>
+      </div>
+      <div class="chart-container" id="chart-div"></div>
+    </div>
+  </div>
+
+  <!-- Detail Panel Side -->
+  <div class="details-panel">
+    <div class="details-header">DECISION TRANSPARENCY DETECTOR</div>
+    <div class="details-body" id="details-body-div">
+      <div class="no-selection">
+        Click on any Trade/Signal Marker (arrows/circles) or double click on the chart to inspect execution data, indicator levels, and AI model decisions.
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Lightweight Charts CDN -->
+<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+  let chart = null;
+  let candleSeries = null;
+  let activeSymbol = "EURUSD";
+  let activeTimeframe = "M5";
+  let activeCount = 150;
+  
+  // Data stores
+  let currentCandles = [];
+  let currentZones = [];
+  let currentSignals = [];
+  let currentRejections = [];
+  let currentTouches = [];
+  
+  // Price lines drawn (to clear later)
+  let activePriceLines = [];
+
+  // UTILS
+  function esc(str) {
+    return String(str ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function fmtPrice(v) {
+    const n = Number(v);
+    if (v === null || v === undefined || isNaN(n)) return "—";
+    if (n > 999) return n.toFixed(2);
+    if (n > 10) return n.toFixed(4);
+    return n.toFixed(5);
+  }
+
+  function fmtPnl(v) {
+    const n = Number(v);
+    if (v === null || v === undefined || isNaN(n)) return "—";
+    const sign = n >= 0 ? "+" : "−";
+    return `${sign}$${Math.abs(n).toFixed(2)}`;
+  }
+
+  function pnlClass(v) {
+    const n = Number(v);
+    if (isNaN(n) || n === 0) return "muted";
+    return n > 0 ? "green" : "red";
+  }
+
+  function checkIcon(v) {
+    return v 
+      ? '<span class="green" style="font-weight:bold;">✓ PASS</span>' 
+      : '<span class="red" style="font-weight:bold;">✗ FAIL</span>';
+  }
+
+  function fmtTs(iso) {
+    if (!iso) return "—";
+    return String(iso).slice(0, 19).replace("T", " ");
+  }
+
+  // INITIALIZE CHART
+  function initChart() {
+    const chartDiv = document.getElementById("chart-div");
+    chartDiv.innerHTML = ""; // Clear loader/previous
+    
+    chart = LightweightCharts.createChart(chartDiv, {
+      layout: {
+        background: { type: 'solid', color: '#161b22' },
+        textColor: '#e6edf3',
+        fontFamily: "'Consolas', 'Cascadia Code', 'JetBrains Mono', monospace",
+      },
+      grid: {
+        verticalLines: { color: 'rgba(48, 54, 61, 0.2)' },
+        horizontalLines: { color: 'rgba(48, 54, 61, 0.2)' },
+      },
+      crosshair: {
+        mode: LightweightCharts.CrosshairMode.Normal,
+      },
+      rightPriceScale: {
+        borderColor: '#30363d',
+      },
+      timeScale: {
+        borderColor: '#30363d',
+        timeVisible: true,
+        secondsVisible: false,
+      },
+    });
+
+    candleSeries = chart.addCandlestickSeries({
+      upColor: '#3fb950',
+      downColor: '#f85149',
+      borderDownColor: '#f85149',
+      borderUpColor: '#3fb950',
+      wickDownColor: '#f85149',
+      wickUpColor: '#3fb950',
+    });
+
+    // Resize handler
+    const resizeObserver = new ResizeObserver(entries => {
+      if (entries.length === 0 || !chart) return;
+      const { width, height } = entries[0].contentRect;
+      chart.resize(width, height);
+    });
+    resizeObserver.observe(chartDiv);
+
+    // Click handler for details detection
+    chart.subscribeClick((param) => {
+      if (!param || !param.time) return;
+      handleChartClick(param.time);
+    });
+  }
+
+  // FETCH DATA
+  async function loadData() {
+    try {
+      activeSymbol = document.getElementById("symbol-select").value;
+      activeTimeframe = document.getElementById("tf-select").value;
+      activeCount = document.getElementById("candle-count").value;
+
+      // Show temporary loading indicator
+      document.getElementById("btn-reload").textContent = "LOADING...";
+
+      // Fetch in parallel
+      const [candleRes, zonesRes, signalsRes, rejectionsRes, touchesRes] = await Promise.all([
+        fetch(`/api/chart/${activeSymbol}/${activeTimeframe}?count=${activeCount}`).then(r => r.json()),
+        fetch('/api/debug/zones').then(r => r.json()),
+        fetch('/api/debug/signals').then(r => r.json()),
+        fetch('/api/rejections').then(r => r.json()),
+        fetch('/api/debug/touches').then(r => r.json())
+      ]);
+
+      if (candleRes.error) {
+        alert("Error loading candles: " + candleRes.error);
+        document.getElementById("btn-reload").textContent = "RELOAD DATA";
+        return;
+      }
+
+      currentCandles = candleRes.candles;
+      currentZones = zonesRes.filter(z => z.symbol === activeSymbol && z.timeframe === activeTimeframe);
+      currentSignals = signalsRes.filter(s => s.symbol === activeSymbol);
+      currentRejections = rejectionsRes.filter(r => r.symbol === activeSymbol);
+      currentTouches = touchesRes.filter(t => t.symbol === activeSymbol && t.timeframe === activeTimeframe);
+
+      renderChartData();
+      document.getElementById("btn-reload").textContent = "RELOAD DATA";
+    } catch (err) {
+      console.error(err);
+      alert("Network or system error: " + err.message);
+      document.getElementById("btn-reload").textContent = "RELOAD DATA";
+    }
+  }
+
+  // RENDER DATA ON CHART
+  function renderChartData() {
+    if (!chart || !candleSeries) return;
+
+    // Set Candles
+    candleSeries.setData(currentCandles);
+
+    // Clear previous S/R zone lines
+    activePriceLines.forEach(line => candleSeries.removePriceLine(line));
+    activePriceLines = [];
+
+    // Draw S/R Zones
+    currentZones.forEach(z => {
+      const isSupport = z.zone_type === 'support';
+      const color = isSupport ? 'rgba(63, 185, 80, 0.5)' : 'rgba(248, 81, 73, 0.5)';
+      const style = LightweightCharts.LineStyle.Solid;
+      
+      // Center Line
+      const centerLine = candleSeries.createPriceLine({
+        price: z.price_center,
+        color: color,
+        lineWidth: 2,
+        lineStyle: style,
+        axisLabelVisible: true,
+        title: `${z.zone_type.toUpperCase()} (Str: ${z.strength}, Touches: ${z.touch_count || 0})`
+      });
+      activePriceLines.push(centerLine);
+
+      // Dash boundaries
+      const upperLine = candleSeries.createPriceLine({
+        price: z.price_upper,
+        color: isSupport ? 'rgba(63, 185, 80, 0.2)' : 'rgba(248, 81, 73, 0.2)',
+        lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.Dashed,
+        axisLabelVisible: false,
+        title: ''
+      });
+      activePriceLines.push(upperLine);
+
+      const lowerLine = candleSeries.createPriceLine({
+        price: z.price_lower,
+        color: isSupport ? 'rgba(63, 185, 80, 0.2)' : 'rgba(248, 81, 73, 0.2)',
+        lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.Dashed,
+        axisLabelVisible: false,
+        title: ''
+      });
+      activePriceLines.push(lowerLine);
+    });
+
+    // Create Markers (Trades & Rejections)
+    const markers = [];
+
+    // We need to map timestamps of events to the closest candle timestamp
+    // so the markers align perfectly on the chart bars.
+    const getClosestCandleTime = (isoTime) => {
+      const ts = new Date(isoTime).getTime() / 1000;
+      if (isNaN(ts)) return null;
+      
+      // Find candle with closest timestamp
+      let closest = null;
+      let minDiff = Infinity;
+      for (const c of currentCandles) {
+        const diff = Math.abs(c.time - ts);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closest = c.time;
+        }
+      }
+      // Only align if within timeframe bounds (e.g. 5 mins = 300s, 15 mins = 900s)
+      const maxDiff = activeTimeframe === "M5" ? 300 : 900;
+      return minDiff <= maxDiff ? closest : null;
+    };
+
+    // 1. Plot signals / trades
+    currentSignals.forEach(s => {
+      const cTime = getClosestCandleTime(s.created_at);
+      if (!cTime) return;
+
+      const isBuy = s.direction === "BUY";
+      
+      if (s.approved) {
+        // Successful or active trade marker
+        markers.push({
+          time: cTime,
+          position: isBuy ? 'belowBar' : 'aboveBar',
+          color: isBuy ? '#3fb950' : '#f85149',
+          shape: isBuy ? 'arrowUp' : 'arrowDown',
+          text: `${s.direction} (Fill: ${fmtPrice(s.fill_price || s.entry)})`,
+          id: `signal-${s.id}`
+        });
+      } else {
+        // Rejection marker
+        markers.push({
+          time: cTime,
+          position: isBuy ? 'belowBar' : 'aboveBar',
+          color: '#d29922',
+          shape: 'circle',
+          text: `REJ: ${s.direction}`,
+          id: `signal-${s.id}`
+        });
+      }
+    });
+
+    // 2. Plot extra rejections (that may not have loaded in currentSignals)
+    currentRejections.forEach(r => {
+      // Check if already plotted via signal
+      if (currentSignals.some(s => s.id === r.signal_id)) return;
+      const cTime = getClosestCandleTime(r.created_at);
+      if (!cTime) return;
+
+      const isBuy = r.direction === "BUY";
+      markers.push({
+        time: cTime,
+        position: isBuy ? 'belowBar' : 'aboveBar',
+        color: '#d29922',
+        shape: 'circle',
+        text: `REJ: ${r.direction}`,
+        id: `rej-${r.id}`
+      });
+    });
+
+    // Sort markers by time ascending
+    markers.sort((a, b) => a.time - b.time);
+
+    // Apply markers to chart
+    candleSeries.setMarkers(markers);
+    
+    // Fit content
+    chart.timeScale().fitContent();
+  }
+
+  // HANDLE MARKER CLICK / DETECTOR DISPLAY
+  function handleChartClick(clickTime) {
+    // Find closest event (signal, rejection, or touch)
+    const getEventTimeDiff = (isoTime) => {
+      const ts = new Date(isoTime).getTime() / 1000;
+      return Math.abs(ts - clickTime);
+    };
+
+    let selectedEvent = null;
+    let minDiff = Infinity;
+    let eventType = ''; // 'signal', 'rejection', 'touch'
+
+    // Check signals
+    currentSignals.forEach(s => {
+      const diff = getEventTimeDiff(s.created_at);
+      if (diff < minDiff) {
+        minDiff = diff;
+        selectedEvent = s;
+        eventType = 'signal';
+      }
+    });
+
+    // Check rejections
+    currentRejections.forEach(r => {
+      const diff = getEventTimeDiff(r.created_at);
+      if (diff < minDiff) {
+        minDiff = diff;
+        selectedEvent = r;
+        eventType = 'rejection';
+      }
+    });
+
+    // Check touches
+    currentTouches.forEach(t => {
+      const diff = getEventTimeDiff(t.created_at);
+      if (diff < minDiff) {
+        minDiff = diff;
+        selectedEvent = t;
+        eventType = 'touch';
+      }
+    });
+
+    // Only show if the click is within 30 minutes of the event
+    // (lightweight charts click handles ticks precisely, but user might click slightly off)
+    const clickToleranceSeconds = 1800; // 30 mins
+    if (selectedEvent && minDiff < clickToleranceSeconds) {
+      if (eventType === 'signal') {
+        showSignalDetails(selectedEvent);
+      } else if (eventType === 'rejection') {
+        // Look up signal details for rejection if possible
+        const sig = currentSignals.find(s => s.id === selectedEvent.signal_id);
+        if (sig) {
+          showSignalDetails(sig);
+        } else {
+          showRejectionDetails(selectedEvent);
+        }
+      } else if (eventType === 'touch') {
+        showTouchDetails(selectedEvent);
+      }
+    }
+  }
+
+  // DETAILED VIEW IN PANEL
+  function showSignalDetails(s) {
+    const detailsDiv = document.getElementById("details-body-div");
+
+    const isBuy = s.direction === "BUY";
+    const statusText = s.realized_pnl !== null 
+      ? (Number(s.realized_pnl) > 0 ? "WON" : "LOST") 
+      : (s.approved ? (s.close_time ? "CLOSED" : "OPEN") : "REJECTED");
+    const statusColor = s.realized_pnl !== null 
+      ? (Number(s.realized_pnl) > 0 ? "green" : "red") 
+      : (s.approved ? "amber" : "red");
+
+    let html = `
+      <div class="detail-section">
+        <div class="detail-title">Trade Lifecycle Overview</div>
+        <div class="detail-row">
+          <span class="detail-label">Symbol</span>
+          <span class="detail-value">${esc(s.symbol)}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Direction</span>
+          <span class="detail-value ${isBuy ? 'green' : 'red'}">${esc(s.direction)}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Created At</span>
+          <span class="detail-value">${fmtTs(s.created_at)}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Status</span>
+          <span class="detail-value ${statusColor}">${statusText} ${s.dry_run ? '(DRY RUN)' : ''}</span>
+        </div>
+        ${s.realized_pnl !== null ? `
+          <div class="detail-row">
+            <span class="detail-label">Realized P&L</span>
+            <span class="detail-value ${pnlClass(s.realized_pnl)}">${fmtPnl(s.realized_pnl)}</span>
+          </div>
+        ` : ''}
+      </div>
+
+      <div class="detail-section">
+        <div class="detail-title">Technical calculations at touch</div>
+        <div class="indicator-pill-grid">
+          <div class="indicator-pill">
+            <div class="name">EMA 21</div>
+            <div class="val">${fmtPrice(s.ema21)}</div>
+          </div>
+          <div class="indicator-pill">
+            <div class="name">EMA 50</div>
+            <div class="val">${fmtPrice(s.ema50)}</div>
+          </div>
+          <div class="indicator-pill">
+            <div class="name">RSI (14)</div>
+            <div class="val ${Number(s.rsi14) > 70 ? 'red' : Number(s.rsi14) < 30 ? 'green' : ''}">${Number(s.rsi14).toFixed(2)}</div>
+          </div>
+          <div class="indicator-pill">
+            <div class="name">MACD Hist</div>
+            <div class="val ${Number(s.macd_hist) >= 0 ? 'green' : 'red'}">${Number(s.macd_hist).toFixed(5)}</div>
+          </div>
+        </div>
+        <div style="margin-top: 8px; font-size:11px;" class="muted">
+          Trend: <strong>${s.ema_trend ? s.ema_trend.toUpperCase() : 'N/A'}</strong> | RSI State: <strong>${s.rsi_state ? s.rsi_state.toUpperCase() : 'N/A'}</strong> | MACD: <strong>${s.macd_state ? s.macd_state.toUpperCase() : 'N/A'}</strong>
+        </div>
+      </div>
+
+      <div class="detail-section">
+        <div class="detail-title">AI Model Analysis & Decision</div>
+        <div class="detail-row">
+          <span class="detail-label">GPT Model</span>
+          <span class="detail-value">gpt-4o</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Confidence Score</span>
+          <span class="detail-value ${Number(s.confidence) >= s.min_confidence ? 'green' : 'red'}">${s.confidence}% (Min: ${s.min_confidence}%)</span>
+        </div>
+        <div class="detail-label" style="margin-top: 8px;">AI Model Reasoning:</div>
+        <div class="gpt-reasoning">${esc(s.reasoning || 'No reasoning details found.')}</div>
+      </div>
+
+      <div class="detail-section">
+        <div class="detail-title">Risk Gate Evaluator</div>
+        <div class="detail-row">
+          <span class="detail-label">Risk Gate Verdict</span>
+          <span class="detail-value">${s.approved ? '<span class="green">APPROVED</span>' : '<span class="red">REJECTED</span>'}</span>
+        </div>
+        ${s.risk_reason ? `
+          <div class="detail-row">
+            <span class="detail-label" style="color:var(--red);">Rejection Reason</span>
+            <span class="detail-value red" style="white-space:normal; text-align:right;">${esc(s.risk_reason)}</span>
+          </div>
+        ` : ''}
+        <div class="check-list">
+          <div class="check-row">
+            <span class="detail-label">Risk-to-Reward Ratio (&ge; ${s.rr_ratio ? '1.5' : '1.5'})</span>
+            <span class="detail-value">${checkIcon(s.rr_ok)} (${s.rr_ratio ? s.rr_ratio : 'N/A'})</span>
+          </div>
+          <div class="check-row">
+            <span class="detail-label">Max Open Positions (&le; 4)</span>
+            <span class="detail-value">${checkIcon(s.max_trades_ok)}</span>
+          </div>
+          <div class="check-row">
+            <span class="detail-label">Correlation Protection (Forex)</span>
+            <span class="detail-value">${checkIcon(s.correlation_ok)}</span>
+          </div>
+          <div class="check-row">
+            <span class="detail-label">Daily Realized Loss Gate</span>
+            <span class="detail-value">${checkIcon(s.daily_loss_ok)}</span>
+          </div>
+          <div class="check-row">
+            <span class="detail-label">Weekly Realized Loss Gate</span>
+            <span class="detail-value">${checkIcon(s.weekly_loss_ok)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="detail-section">
+        <div class="detail-title">Execution Details</div>
+        <div class="detail-row">
+          <span class="detail-label">Lot Size</span>
+          <span class="detail-value">${s.volume ? Number(s.volume).toFixed(2) : '—'}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Target Entry</span>
+          <span class="detail-value">${fmtPrice(s.entry)}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Fill Price</span>
+          <span class="detail-value">${fmtPrice(s.fill_price)}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Stop Loss</span>
+          <span class="detail-value red">${fmtPrice(s.stop_loss)}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Take Profit</span>
+          <span class="detail-value green">${fmtPrice(s.take_profit)}</span>
+        </div>
+        ${s.close_time ? `
+          <div class="detail-row">
+            <span class="detail-label">Close Price</span>
+            <span class="detail-value">${fmtPrice(s.close_price)}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Close Time</span>
+            <span class="detail-value">${fmtTs(s.close_time)}</span>
+          </div>
+        ` : ''}
+      </div>
+    `;
+
+    detailsDiv.innerHTML = html;
+  }
+
+  function showRejectionDetails(r) {
+    const detailsDiv = document.getElementById("details-body-div");
+    const isBuy = r.direction === "BUY";
+
+    let html = `
+      <div class="detail-section">
+        <div class="detail-title">Risk Gate Rejection</div>
+        <div class="detail-row">
+          <span class="detail-label">Symbol</span>
+          <span class="detail-value">${esc(r.symbol)}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Direction</span>
+          <span class="detail-value ${isBuy ? 'green' : 'red'}">${esc(r.direction)}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Time (UTC)</span>
+          <span class="detail-value">${fmtTs(r.created_at)}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label" style="color:var(--red);">Rejection Reason</span>
+          <span class="detail-value red" style="white-space:normal; text-align:right;">${esc(r.reason)}</span>
+        </div>
+      </div>
+
+      <div class="detail-section">
+        <div class="detail-title">Risk Validation Checks</div>
+        <div class="check-list">
+          <div class="check-row">
+            <span class="detail-label">Risk-to-Reward Ratio (&ge; 1.5)</span>
+            <span class="detail-value">${checkIcon(r.rr_ok)}</span>
+          </div>
+          <div class="check-row">
+            <span class="detail-label">Max Open Positions (&le; 4)</span>
+            <span class="detail-value">${checkIcon(r.max_trades_ok)}</span>
+          </div>
+          <div class="check-row">
+            <span class="detail-label">Correlation Protection (Forex)</span>
+            <span class="detail-value">${checkIcon(r.correlation_ok)}</span>
+          </div>
+          <div class="check-row">
+            <span class="detail-label">Daily Realized Loss Gate</span>
+            <span class="detail-value">${checkIcon(r.daily_loss_ok)}</span>
+          </div>
+          <div class="check-row">
+            <span class="detail-label">Weekly Realized Loss Gate</span>
+            <span class="detail-value">${checkIcon(r.weekly_loss_ok)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="detail-section" style="text-align:center; color:var(--muted); font-style:italic;">
+        AI model decisions are not stored for signals that fail pre-flight indicators or raw validation before GPT evaluation.
+      </div>
+    `;
+
+    detailsDiv.innerHTML = html;
+  }
+
+  function showTouchDetails(t) {
+    const detailsDiv = document.getElementById("details-body-div");
+
+    let html = `
+      <div class="detail-section">
+        <div class="detail-title">Zone Touch Event</div>
+        <div class="detail-row">
+          <span class="detail-label">Symbol</span>
+          <span class="detail-value">${esc(t.symbol)}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Zone Type</span>
+          <span class="detail-value ${t.zone_type === 'support' ? 'green' : 'red'}">${esc(t.zone_type.toUpperCase())}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Timeframe</span>
+          <span class="detail-value">${esc(t.timeframe)}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Time (UTC)</span>
+          <span class="detail-value">${fmtTs(t.created_at)}</span>
+        </div>
+      </div>
+
+      <div class="detail-section">
+        <div class="detail-title">Zone Price Geometry</div>
+        <div class="detail-row">
+          <span class="detail-label">Zone Center</span>
+          <span class="detail-value">${fmtPrice(t.price_center)}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Current Mid Price</span>
+          <span class="detail-value">${fmtPrice(t.mid_price)}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Proximity Distance</span>
+          <span class="detail-value green">${t.proximity_pct ? t.proximity_pct.toFixed(4) + '%' : '—'}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Zone Strength</span>
+          <span class="detail-value">${t.zone_strength || '—'} pivots</span>
+        </div>
+      </div>
+
+      <div class="detail-section" style="text-align:center; color:var(--muted); font-style:italic;">
+        When price is within 0.1% of the zone center, the bot triggers calculations and sends a prompt to the AI Model.
+      </div>
+    `;
+
+    detailsDiv.innerHTML = html;
+  }
+
+  // UTILITY CLOCK
+  function updateClock() {
+    const n = new Date();
+    const pad = v => String(v).padStart(2, "0");
+    const el = document.getElementById("clock");
+    if (el) el.textContent = `${pad(n.getUTCHours())}:${pad(n.getUTCMinutes())}:${pad(n.getUTCSeconds())} UTC`;
+  }
+
+  // HEARTBEAT / STATUS
+  async function checkStatus() {
+    try {
+      const res = await fetch("/api/health");
+      if (res.ok) {
+        document.getElementById("status-dot").className = "dot green";
+        document.getElementById("status-text").textContent = "live";
+      } else {
+        document.getElementById("status-dot").className = "dot red";
+        document.getElementById("status-text").textContent = "offline";
+      }
+    } catch {
+      document.getElementById("status-dot").className = "dot red";
+      document.getElementById("status-text").textContent = "offline";
+    }
+  }
+
+  // BOOT
+  document.addEventListener("DOMContentLoaded", () => {
+    initChart();
+    loadData();
+
+    // Event listeners
+    document.getElementById("symbol-select").addEventListener("change", loadData);
+    document.getElementById("tf-select").addEventListener("change", loadData);
+    document.getElementById("candle-count").addEventListener("change", loadData);
+    document.getElementById("btn-reload").addEventListener("click", loadData);
+
+    // Timers
+    setInterval(updateClock, 1000);
+    setInterval(checkStatus, 5000);
+    updateClock();
+    checkStatus();
+  });
+</script>
+</body>
+</html>

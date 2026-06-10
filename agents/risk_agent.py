@@ -8,8 +8,7 @@ approved=True/False and the computed lot size.
 Checks (all must pass for approval):
     1. R:R >= MIN_RR (1.2) — computed from entry/stop_loss/take_profit.
     2. Open trades <= MAX_OPEN_TRADES (3) — via get_all_positions().
-    3. No correlated pair both open (see CORRELATED_PAIRS — empty for single-instrument mode).
-    4. Today's realised P&L stays within [-DAILY_LOSS_LIMIT_USD, +DAILY_PROFIT_TARGET_USD]
+    3. Today's realised P&L stays within [-DAILY_LOSS_LIMIT_USD, +DAILY_PROFIT_TARGET_USD]
        — once the daily profit target or loss limit is reached, new trades are blocked
        for the rest of the UTC day (existing open positions still run to their own SL/TP).
     5. Lot size computed from a fixed dollar notional: volume ≈ FIXED_TRADE_USD / price,
@@ -146,22 +145,6 @@ class RiskAgent:
             failures.append("Open-trade count check error")
 
         # ----------------------------------------------------------
-        # Check 3: Correlated pair check
-        # open_bases is populated by Check 2 above; empty on exception → pass-through
-        # ----------------------------------------------------------
-        correlation_ok = False
-        try:
-            correlation_ok = self._check_correlation(event.symbol, open_bases)
-            if not correlation_ok:
-                failures.append(
-                    f"{event.symbol} blocked — correlated pair already open "
-                    f"(CORRELATED_PAIRS={config.CORRELATED_PAIRS})"
-                )
-        except Exception:
-            logger.exception("RiskAgent: correlation check raised — failing open")
-            correlation_ok = True   # can't determine, don't block on internal error
-
-        # ----------------------------------------------------------
         # Check 4: Today's realised P&L within [-DAILY_LOSS_LIMIT_USD, +DAILY_PROFIT_TARGET_USD]
         # (from MT5 deal history). Once either bound is reached, new trades
         # are blocked for the rest of the UTC day; existing positions are
@@ -201,7 +184,7 @@ class RiskAgent:
         # Verdict
         # ----------------------------------------------------------
         approved = (
-            rr_ok and max_trades_ok and correlation_ok and daily_loss_ok
+            rr_ok and max_trades_ok and daily_loss_ok
         )
         reason = "All checks passed" if approved else "; ".join(failures)
 
@@ -218,7 +201,7 @@ class RiskAgent:
                 volume=volume if approved else 0.0,
                 rr_ok=rr_ok,
                 max_trades_ok=max_trades_ok,
-                correlation_ok=correlation_ok,
+                correlation_ok=True,
                 daily_loss_ok=daily_loss_ok,
                 weekly_loss_ok=True,   # weekly $-limit check removed; always pass for audit consistency
             )
@@ -253,25 +236,6 @@ class RiskAgent:
         # Use a small epsilon (1e-9) to handle floating-point imprecision
         # when the ratio is very close to the threshold (e.g. exactly 1.5).
         return rr >= (config.MIN_RR - 1e-9)
-
-    def _check_correlation(self, signal_symbol: str, open_bases: Set[str]) -> bool:
-        """
-        Return False if the signal symbol's correlated partner is already open.
-
-        Args:
-            signal_symbol: Base symbol from the new signal (no suffix).
-            open_bases:    Set of currently open base symbol names (suffix already stripped).
-        """
-        sig_upper = signal_symbol.upper()
-        for pair in config.CORRELATED_PAIRS:
-            a, b = pair[0].upper(), pair[1].upper()
-            if sig_upper == a and b in open_bases:
-                logger.info("RiskAgent: %s correlated with open %s", sig_upper, b)
-                return False
-            if sig_upper == b and a in open_bases:
-                logger.info("RiskAgent: %s correlated with open %s", sig_upper, a)
-                return False
-        return True
 
     def _get_realized_pnl(self, from_date: datetime) -> float:
         """

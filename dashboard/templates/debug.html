@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Trading Bot — Debug Transparency Panel</title>
+  <style>
+    :root {
+      --bg: #0d0d0d; --surface: #141414; --surface2: #1c1c1c; --border: #2a2a2a;
+      --text: #e0e0e0; --muted: #666; --green: #2ecc71; --red: #e74c3c;
+      --yellow: #f1c40f; --cyan: #00bcd4; --blue: #3498db; --magenta: #9b59b6;
+      --orange: #e67e22; --mono: 'Fira Mono', 'Consolas', monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: var(--mono); font-size: 12px; }
+    .header {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 10px 16px; display: flex; align-items: center; gap: 16px;
+      position: sticky; top: 0; z-index: 100;
+    }
+    .header h1 { font-size: 14px; color: var(--cyan); }
+    .header .status { font-size: 11px; color: var(--muted); }
+    .header .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+    .nav { display: flex; gap: 8px; margin-left: auto; }
+    .nav a { color: var(--muted); text-decoration: none; padding: 4px 10px; border: 1px solid var(--border);
+              border-radius: 4px; font-size: 11px; }
+    .nav a:hover, .nav a.active { color: var(--cyan); border-color: var(--cyan); }
+
+    .main { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; padding: 10px; }
+    .full-width { grid-column: 1 / -1; }
+    .two-thirds  { grid-column: span 2; }
+
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 6px; overflow: hidden;
+    }
+    .card-header {
+      padding: 7px 12px; background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      font-weight: bold; font-size: 11px; color: var(--cyan);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .card-body { padding: 10px 12px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th { text-align: left; color: var(--muted); padding: 3px 6px;
+         border-bottom: 1px solid var(--border); font-weight: normal; white-space: nowrap; }
+    td { padding: 3px 6px; border-bottom: 1px solid #1a1a1a; white-space: nowrap; }
+    tr:hover td { background: var(--surface2); }
+
+    .badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: bold; }
+    .badge-green  { background: rgba(46,204,113,.15); color: var(--green); border: 1px solid rgba(46,204,113,.3); }
+    .badge-red    { background: rgba(231,76,60,.15);  color: var(--red);   border: 1px solid rgba(231,76,60,.3); }
+    .badge-yellow { background: rgba(241,196,15,.15); color: var(--yellow);border: 1px solid rgba(241,196,15,.3); }
+    .badge-cyan   { background: rgba(0,188,212,.15);  color: var(--cyan);  border: 1px solid rgba(0,188,212,.3); }
+    .badge-magenta{ background: rgba(155,89,182,.15); color: var(--magenta);border: 1px solid rgba(155,89,182,.3); }
+    .badge-dim    { background: rgba(255,255,255,.05);color: var(--muted); border: 1px solid var(--border); }
+
+    .g { color: var(--green); }
+    .r { color: var(--red); }
+    .y { color: var(--yellow); }
+    .c { color: var(--cyan); }
+    .m { color: var(--magenta); }
+    .dim { color: var(--muted); }
+    .mono { font-family: var(--mono); }
+
+    .bar-bg { background: var(--border); height: 6px; border-radius: 3px; width: 100%; }
+    .bar-fill { height: 6px; border-radius: 3px; transition: width .5s; }
+
+    .funnel-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+    .funnel-label { width: 130px; font-size: 11px; color: var(--muted); }
+    .funnel-count { width: 40px; text-align: right; font-weight: bold; }
+    .funnel-bar   { flex: 1; }
+    .funnel-conv  { width: 45px; text-align: right; font-size: 10px; color: var(--muted); }
+
+    .indicator-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin: 6px 0; }
+    .indicator-box {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 4px; padding: 6px 8px;
+    }
+    .indicator-name { font-size: 10px; color: var(--muted); margin-bottom: 2px; }
+    .indicator-val  { font-size: 13px; font-weight: bold; }
+
+    .signal-block {
+      border: 1px solid var(--border); border-radius: 5px;
+      padding: 10px; margin-bottom: 8px; background: var(--surface2);
+    }
+    .signal-block:hover { border-color: var(--cyan); }
+
+    .check-grid { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0; }
+    .check-item { display: flex; align-items: center; gap: 3px; font-size: 10px; }
+
+    .reasoning {
+      background: #111; border-left: 3px solid var(--cyan);
+      padding: 6px 10px; margin: 6px 0; font-size: 11px;
+      color: var(--text); line-height: 1.5; border-radius: 0 4px 4px 0;
+    }
+
+    .preflight-box {
+      background: #111; border: 1px solid var(--border);
+      border-radius: 4px; padding: 8px 10px; margin: 6px 0;
+    }
+    .preflight-pass { border-left: 3px solid var(--green); }
+    .preflight-block { border-left: 3px solid var(--red); }
+
+    .event-stream { max-height: 300px; overflow-y: auto; }
+    .event-row { padding: 3px 6px; border-bottom: 1px solid #1a1a1a; font-size: 11px; }
+    .event-row:hover { background: var(--surface2); }
+    .event-type { color: var(--cyan); width: 220px; display: inline-block; }
+    .event-sym  { color: var(--yellow); width: 80px; display: inline-block; }
+    .event-time { color: var(--muted); font-size: 10px; }
+
+    .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+    .config-row { display: flex; justify-content: space-between; padding: 3px 0;
+                  border-bottom: 1px solid #1a1a1a; }
+    .config-key { color: var(--muted); }
+    .config-val { color: var(--yellow); font-weight: bold; }
+
+    #refresh-badge { font-size: 10px; color: var(--muted); }
+    .section-title { font-size: 10px; color: var(--muted); text-transform: uppercase;
+                     letter-spacing: .5px; margin-bottom: 6px; }
+
+    .lot-formula { background: #0a1a0a; border: 1px solid rgba(46,204,113,.2);
+                   border-radius: 4px; padding: 6px 10px; margin: 4px 0; font-size: 10px;
+                   color: var(--green); }
+
+    @media (max-width: 1100px) {
+      .main { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 700px) {
+      .main { grid-template-columns: 1fr; }
+      .full-width, .two-thirds { grid-column: 1; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="live-dot"></div>
+  <h1>Trading Bot — Debug Transparency Panel</h1>
+  <span class="status" id="last-update">Loading…</span>
+  <div class="nav">
+    <a href="/">Dashboard</a>
+    <a href="/debug" class="active">Debug</a>
+    <a href="/visualizer">Visualizer</a>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- ── Config ── -->
+  <div class="card">
+    <div class="card-header">
+      ⚙ Bot Configuration
+      <span id="exec-mode"></span>
+    </div>
+    <div class="card-body" id="config-panel">Loading…</div>
+  </div>
+
+  <!-- ── Agent Health ── -->
+  <div class="card">
+    <div class="card-header">💓 Agent Health (last event seen)</div>
+    <div class="card-body" id="health-panel">Loading…</div>
+  </div>
+
+  <!-- ── P&L ── -->
+  <div class="card">
+    <div class="card-header">💰 P&L Tracker</div>
+    <div class="card-body" id="pnl-panel">Loading…</div>
+  </div>
+
+  <!-- ── Funnel ── -->
+  <div class="card">
+    <div class="card-header">📊 Event Funnel — Today's Pipeline</div>
+    <div class="card-body" id="funnel-panel">Loading…</div>
+  </div>
+
+  <!-- ── Active Zones ── -->
+  <div class="card two-thirds">
+    <div class="card-header">🗺 Active S/R Zones
+      <span id="zone-count" class="dim"></span>
+    </div>
+    <div class="card-body" style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>ID</th><th>Symbol</th><th>TF</th><th>Type</th>
+          <th>Center</th><th>Upper</th><th>Lower</th>
+          <th>Width %</th><th>Str</th><th>Touches</th><th>Last Touch</th><th>Created</th>
+        </tr></thead>
+        <tbody id="zones-table">
+          <tr><td colspan="12" class="dim">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── Recent Zone Touches ── -->
+  <div class="card full-width">
+    <div class="card-header">👁 Recent Zone Touches — Proximity & Details</div>
+    <div class="card-body" style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>When</th><th>Symbol</th><th>Zone ID</th><th>Type</th><th>TF</th>
+          <th>Zone Center</th><th>Live Price (mid)</th><th>Bid</th><th>Ask</th>
+          <th>Proximity %</th><th>Strength</th>
+        </tr></thead>
+        <tbody id="touches-table">
+          <tr><td colspan="11" class="dim">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── Latest Signals (full detail) ── -->
+  <div class="card full-width">
+    <div class="card-header">🧠 GPT Signal Analysis — Every Back-Thought Exposed</div>
+    <div class="card-body" id="signals-panel">Loading…</div>
+  </div>
+
+  <!-- ── Risk Gate Details ── -->
+  <div class="card full-width">
+    <div class="card-header">🛡 Risk Gate — All 5 Checks With Exact Numbers</div>
+    <div class="card-body" style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>When</th><th>Symbol</th><th>Dir</th><th>Verdict</th>
+          <th>R:R (calc)</th><th>R:R ≥ min</th>
+          <th>Max Trades</th><th>Correlation</th><th>Daily P&L</th>
+          <th>Lot Size</th><th>Notional $</th><th>Rejection Reason</th>
+        </tr></thead>
+        <tbody id="risk-table">
+          <tr><td colspan="12" class="dim">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── Trade History ── -->
+  <div class="card full-width">
+    <div class="card-header">📋 Trade Lifecycle — Signal → Risk → Execution → Close</div>
+    <div class="card-body" style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>ID</th><th>When</th><th>Symbol</th><th>Dir</th>
+          <th>Confidence</th><th>Zone</th><th>R:R</th>
+          <th>Entry</th><th>SL</th><th>TP</th>
+          <th>Fill</th><th>Slippage</th><th>SL/TP</th>
+          <th>Result</th><th>Close</th><th>P&L</th><th>Duration</th>
+        </tr></thead>
+        <tbody id="lifecycle-table">
+          <tr><td colspan="17" class="dim">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── Event Stream ── -->
+  <div class="card full-width">
+    <div class="card-header">📡 Raw Event Stream (last 50 events)</div>
+    <div class="card-body event-stream" id="event-stream">Loading…</div>
+  </div>
+
+</div>
+
+<script>
+const fmtAgo = (iso) => {
+  if (!iso) return '—';
+  const d = new Date(iso.replace('Z','+00:00'));
+  const s = Math.floor((Date.now() - d)/1000);
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s/60)}m ${s%60}s ago`;
+  return `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m ago`;
+};
+const fmt = (v, d=5) => v == null ? '<span class="dim">—</span>' : parseFloat(v).toFixed(d);
+const badge = (ok, labels=['✓','✗']) => {
+  if (ok == null) return '<span class="dim">?</span>';
+  return ok ? `<span class="g">✓</span>` : `<span class="r">✗</span>`;
+};
+const dirBadge = (d) => d === 'BUY'
+  ? '<span class="badge badge-green">BUY</span>'
+  : '<span class="badge badge-red">SELL</span>';
+
+// ── Funnel ──
+async function loadFunnel() {
+  const [f, s] = await Promise.all([
+    fetch('/api/funnel').then(r=>r.json()),
+    fetch('/api/debug/summary').then(r=>r.json()),
+  ]);
+  const td = s.today;
+  const max = Math.max(td.zone_touches || 1, 1);
+  const rows = [
+    ['1. Zone Touches',    td.zone_touches,  null,                       '#3498db'],
+    ['2. Analysis Started',td.analyses,      td.zone_touches,            '#00bcd4'],
+    ['3. GPT Signals',     td.signals,       td.analyses,                '#f1c40f'],
+    ['4. Risk Approved',   td.risk_approved, td.signals,                 '#2ecc71'],
+    ['4. Risk Rejected',   td.risk_rejected, td.signals,                 '#e74c3c'],
+    ['5. Executed',        td.trades_exec,   td.risk_approved,           '#27ae60'],
+  ];
+  document.getElementById('funnel-panel').innerHTML = rows.map(([label, count, denom, color]) => {
+    const pct = max > 0 ? count/max*100 : 0;
+    const conv = denom > 0 ? `${(count/denom*100).toFixed(0)}%` : '—';
+    return `<div class="funnel-row">
+      <div class="funnel-label">${label}</div>
+      <div class="funnel-count" style="color:${color}">${count}</div>
+      <div class="funnel-bar">
+        <div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
+      </div>
+      <div class="funnel-conv">${conv}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Config ──
+async function loadConfig() {
+  const s = await fetch('/api/debug/summary').then(r=>r.json());
+  const c = s.config;
+  const live = c.execution_live;
+  document.getElementById('exec-mode').innerHTML = live
+    ? '<span class="badge badge-red">LIVE</span>'
+    : '<span class="badge badge-yellow">DRY-RUN</span>';
+  const rows = [
+    ['MIN R:R',             c.min_rr],
+    ['Min Confidence',      c.min_confidence + '%'],
+    ['Max Open Trades',     c.max_open_trades],
+    ['Daily Loss Limit',    '$' + c.daily_loss_limit],
+    ['Daily Profit Target', '$' + c.daily_profit_target],
+    ['Fixed Trade $',       '$' + c.fixed_trade_usd],
+    ['Symbols',             c.symbols?.join(', ') || '—'],
+    ['Tick Interval',       c.tick_interval_sec + 's'],
+    ['Breakeven Trigger',   (c.breakeven_trigger*100) + '% TP reached'],
+    ['Trailing Trigger',    (c.trailing_trigger*100) + '% TP reached'],
+    ['Execution Mode',      live ? 'LIVE' : 'DRY-RUN'],
+  ];
+  document.getElementById('config-panel').innerHTML = `
+    <div class="config-grid">
+      ${rows.map(([k,v])=>`<div class="config-row"><span class="config-key">${k}</span><span class="config-val">${v}</span></div>`).join('')}
+    </div>`;
+}
+
+// ── Agent Health ──
+async function loadHealth() {
+  const s = await fetch('/api/debug/summary').then(r=>r.json());
+  const agents = s.agent_last_seen;
+  const html = Object.entries(agents).map(([name, ts]) => {
+    const ago = fmtAgo(ts);
+    let status, color;
+    if (!ts) { status = 'no data'; color = 'dim'; }
+    else {
+      const secs = (Date.now() - new Date(ts.replace('Z','+00:00')))/1000;
+      if (secs < 120)  { status = '● alive';  color = 'g'; }
+      else if (secs < 600) { status = '● idle'; color = 'y'; }
+      else             { status = '● stale'; color = 'r'; }
+    }
+    return `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border)">
+      <span class="c">${name.replace('_',' ')}</span>
+      <span class="dim">${ago}</span>
+      <span class="${color}">${status}</span>
+    </div>`;
+  }).join('');
+  document.getElementById('health-panel').innerHTML = html;
+}
+
+// ── P&L ──
+async function loadPnl() {
+  const p = await fetch('/api/pnl').then(r=>r.json());
+  const tc = p.today >= 0 ? 'g' : 'r';
+  const wc = p.week  >= 0 ? 'g' : 'r';
+  const ac = p.all_time >= 0 ? 'g' : 'r';
+  document.getElementById('pnl-panel').innerHTML = `
+    <div style="font-size:18px;font-weight:bold;margin-bottom:8px" class="${tc}">
+      Today: $${p.today >= 0 ? '+' : ''}${p.today.toFixed(2)}
+    </div>
+    <div style="margin-bottom:4px">
+      <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:2px">
+        <span class="dim">Loss used ${p.loss_used_pct}% of $${p.daily_loss_limit}</span>
+        <span class="dim">Profit ${p.profit_used_pct}% of $${p.daily_profit_target}</span>
+      </div>
+      <div class="bar-bg" style="height:8px">
+        <div class="bar-fill" style="width:${p.loss_used_pct}%;background:var(--red)"></div>
+      </div>
+      <div class="bar-bg" style="height:8px;margin-top:3px">
+        <div class="bar-fill" style="width:${p.profit_used_pct}%;background:var(--green)"></div>
+      </div>
+    </div>
+    <div style="margin-top:8px">
+      <span class="dim">Week: </span><span class="${wc}">$${p.week >= 0 ? '+' : ''}${p.week.toFixed(2)}</span>
+      &nbsp;&nbsp;
+      <span class="dim">All-time: </span><span class="${ac}">$${p.all_time >= 0 ? '+' : ''}${p.all_time.toFixed(2)}</span>
+    </div>`;
+}
+
+// ── Zones ──
+async function loadZones() {
+  const zones = await fetch('/api/debug/zones').then(r=>r.json());
+  document.getElementById('zone-count').textContent = zones.length + ' active';
+  const tbody = zones.map(z => {
+    const tc = z.zone_type === 'support' ? 'c' : 'm';
+    return `<tr>
+      <td class="dim">${z.id}</td>
+      <td class="y">${z.symbol}</td>
+      <td class="dim">${z.timeframe}</td>
+      <td class="${tc}">${z.zone_type}</td>
+      <td>${fmt(z.price_center)}</td>
+      <td class="dim">${fmt(z.price_upper)}</td>
+      <td class="dim">${fmt(z.price_lower)}</td>
+      <td>${(z.width_pct||0).toFixed(3)}%</td>
+      <td class="y">${z.strength}</td>
+      <td>${z.touch_count || 0}</td>
+      <td class="dim">${fmtAgo(z.last_touch)}</td>
+      <td class="dim">${fmtAgo(z.created_at)}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="12" class="dim">No active zones</td></tr>';
+  document.getElementById('zones-table').innerHTML = tbody;
+}
+
+// ── Touches ──
+async function loadTouches() {
+  const touches = await fetch('/api/debug/touches').then(r=>r.json());
+  const tbody = touches.map(t => {
+    const prox = t.proximity_pct;
+    let proxClass = 'g', proxIcon = '⚡';
+    if (prox > 0.1) { proxClass = 'y'; proxIcon = '~'; }
+    if (prox > 0.2) { proxClass = 'dim'; proxIcon = '≈'; }
+    const tc = t.zone_type === 'support' ? 'c' : 'm';
+    return `<tr>
+      <td class="dim">${fmtAgo(t.created_at)}</td>
+      <td class="y">${t.symbol}</td>
+      <td class="dim">${t.zone_id || '?'}</td>
+      <td class="${tc}">${t.zone_type || '?'}</td>
+      <td class="dim">${t.timeframe || '?'}</td>
+      <td>${fmt(t.price_center)}</td>
+      <td class="${proxClass}">${fmt(t.mid_price)}</td>
+      <td class="dim">${fmt(t.bid)}</td>
+      <td class="dim">${fmt(t.ask)}</td>
+      <td class="${proxClass}">${proxIcon} ${prox != null ? prox.toFixed(3)+'%' : '—'}</td>
+      <td>${t.zone_strength || '?'}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="11" class="dim">No touches yet</td></tr>';
+  document.getElementById('touches-table').innerHTML = tbody;
+}
+
+// ── Signals ──
+async function loadSignals() {
+  const signals = await fetch('/api/debug/signals').then(r=>r.json());
+  const html = signals.slice(0, 8).map(s => {
+    const approved = s.approved;
+    const appBadge = approved == null ? '' :
+      approved ? '<span class="badge badge-green">APPROVED</span>' :
+                 '<span class="badge badge-red">REJECTED</span>';
+    const dc = s.direction === 'BUY' ? 'g' : 'r';
+    const rr = s.rr_ratio;
+    const minRr = parseFloat(s.min_rr || 1.5);
+    const rrColor = rr && rr >= minRr ? 'g' : 'r';
+    const confColor = parseFloat(s.confidence) >= parseFloat(s.min_confidence || 65) ? 'g' : 'y';
+
+    // Indicators section
+    const ema21 = s.ema21, ema50 = s.ema50, rsi14 = s.rsi14;
+    const macdLine = s.macd_line, macdSig = s.macd_signal, macdHist = s.macd_hist;
+    const emaDir = s.ema_trend;
+    const emaDirColor = emaDir === 'uptrend' ? 'g' : 'r';
+
+    // RSI badge
+    const rsiState = s.rsi_state;
+    const rsiColor = rsiState === 'overbought' ? 'r' : rsiState === 'oversold' ? 'c' : 'dim';
+
+    // MACD
+    const macdState = s.macd_state;
+    const macdColor = macdState === 'bullish' ? 'g' : 'r';
+
+    // Preflight
+    const pf = s.preflight || {};
+    const pfHtml = pf.would_block
+      ? `<div class="preflight-box preflight-block">
+          <span class="r">✗ Preflight would have BLOCKED this: </span>
+          <span class="dim">${pf.reason || ''}</span><br>
+          <span class="dim">(This signal passed because preflight checked at analysis time)</span>
+         </div>`
+      : `<div class="preflight-box preflight-pass">
+          <span class="g">✓ Preflight PASSED</span>
+          <span class="dim"> — indicators aligned with zone type (${pf.zone_type || '?'})</span>
+         </div>`;
+
+    // Geometry
+    const geoOk = s.geometry_ok;
+    const geoHtml = geoOk == null ? '' :
+      geoOk ? `<span class="g">✓ Geometry OK (${s.direction} SL&lt;Entry&lt;TP)</span>` :
+               `<span class="r">✗ Geometry INVALID!</span>`;
+
+    // Lot formula
+    const lf = s.lot_formula;
+    const lotHtml = lf ? `<div class="lot-formula">
+      Lot formula: $${lf.fixed_usd} ÷ ${lf.entry} = ${lf.raw_lot.toFixed(8)} raw lot → ${lf.note}
+    </div>` : '';
+
+    // Risk checks breakdown
+    const checks = [
+      { label: 'R:R ≥ ' + (s.rr_ratio ? parseFloat(s.rr_ratio).toFixed(2) : '?'), ok: s.rr_ok, detail: `calc ${rr ? rr.toFixed(3) : '?'} vs min ${minRr}` },
+      { label: 'Max Trades',   ok: s.max_trades_ok,  detail: 'open count check' },
+      { label: 'Correlation',  ok: s.correlation_ok, detail: 'correlated pair check' },
+      { label: 'Daily P&L',   ok: s.daily_loss_ok,  detail: 'within daily limits' },
+    ];
+    const checksHtml = approved != null ? `<div class="check-grid">
+      ${checks.filter(c=>c.ok!=null).map(c=>`
+        <div class="check-item">
+          ${c.ok ? '<span class="g">✓</span>' : '<span class="r">✗</span>'}
+          <span class="${c.ok ? '' : 'r'}">${c.label}</span>
+          <span class="dim">(${c.detail})</span>
+        </div>`).join('')}
+    </div>` : '';
+
+    return `<div class="signal-block">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+        <span class="dim">#${s.id}</span>
+        ${dirBadge(s.direction)}
+        <span class="y">${s.symbol}</span>
+        <span class="dim">${s.timeframe || '?'}</span>
+        ${appBadge}
+        <span class="dim" style="margin-left:auto">${fmtAgo(s.created_at)}</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px">
+        <div class="indicator-box">
+          <div class="indicator-name">Entry</div>
+          <div class="indicator-val">${fmt(s.entry)}</div>
+        </div>
+        <div class="indicator-box">
+          <div class="indicator-name">Stop Loss</div>
+          <div class="indicator-val r">${fmt(s.stop_loss)}</div>
+        </div>
+        <div class="indicator-box">
+          <div class="indicator-name">Take Profit</div>
+          <div class="indicator-val g">${fmt(s.take_profit)}</div>
+        </div>
+        <div class="indicator-box">
+          <div class="indicator-name">R:R Ratio</div>
+          <div class="indicator-val ${rrColor}">${rr ? rr.toFixed(3) : '?'} <span class="dim" style="font-size:10px">(min ${minRr})</span></div>
+        </div>
+        <div class="indicator-box">
+          <div class="indicator-name">Confidence</div>
+          <div class="indicator-val ${confColor}">${parseFloat(s.confidence || 0).toFixed(0)}% <span class="dim" style="font-size:10px">(min ${s.min_confidence}%)</span></div>
+        </div>
+        <div class="indicator-box">
+          <div class="indicator-name">EMA21</div>
+          <div class="indicator-val">${fmt(s.ema21)}</div>
+        </div>
+        <div class="indicator-box">
+          <div class="indicator-name">EMA50</div>
+          <div class="indicator-val">${fmt(s.ema50)}</div>
+        </div>
+        <div class="indicator-box">
+          <div class="indicator-name">EMA Trend</div>
+          <div class="indicator-val ${emaDirColor}">${emaDir || '—'}</div>
+        </div>
+        <div class="indicator-box">
+          <div class="indicator-name">RSI14</div>
+          <div class="indicator-val ${rsiColor}">${fmt(s.rsi14, 1)} <span class="dim" style="font-size:10px">${rsiState || ''}</span></div>
+        </div>
+        <div class="indicator-box">
+          <div class="indicator-name">MACD Line</div>
+          <div class="indicator-val">${fmt(s.macd_line, 6)}</div>
+        </div>
+        <div class="indicator-box">
+          <div class="indicator-name">MACD Signal</div>
+          <div class="indicator-val">${fmt(s.macd_signal, 6)}</div>
+        </div>
+        <div class="indicator-box">
+          <div class="indicator-name">MACD Hist</div>
+          <div class="indicator-val ${macdColor}">${fmt(s.macd_hist, 6)} <span class="dim" style="font-size:10px">${macdState || ''}</span></div>
+        </div>
+      </div>
+
+      ${pfHtml}
+      <div style="margin:4px 0">${geoHtml}</div>
+      ${lotHtml}
+      ${checksHtml}
+
+      ${s.reasoning ? `<div class="reasoning"><span class="dim">GPT reasoning: </span>${s.reasoning}</div>` : ''}
+      ${!s.approved && s.risk_reason ? `<div style="color:var(--red);font-size:11px;margin-top:4px">Rejected: ${s.risk_reason}</div>` : ''}
+    </div>`;
+  }).join('') || '<div class="dim">No signals yet.</div>';
+
+  document.getElementById('signals-panel').innerHTML = html;
+}
+
+// ── Risk Table ──
+async function loadRisk() {
+  const rows = await fetch('/api/debug/risk').then(r=>r.json());
+  const tbody = rows.map(r => {
+    const approved = !!r.approved;
+    const ac = approved ? 'g' : 'r';
+    const dc = (r.direction || r.sig_direction || '') === 'BUY' ? 'g' : 'r';
+    const rr = r.rr_calculated;
+    const minRr = r.rr_threshold || 1.5;
+    const rrColor = rr && rr >= minRr ? 'g' : 'r';
+    const vol = parseFloat(r.volume || 0);
+    return `<tr>
+      <td class="dim">${fmtAgo(r.created_at)}</td>
+      <td class="y">${r.symbol || '?'}</td>
+      <td class="${dc}">${r.direction || r.sig_direction || '?'}</td>
+      <td class="${ac} bold">${approved ? 'APPROVED' : 'REJECTED'}</td>
+      <td class="${rrColor}">${rr != null ? rr.toFixed(3) : '?'} <span class="dim">(≥${minRr})</span></td>
+      <td>${badge(r.rr_ok)}</td>
+      <td>${badge(r.max_trades_ok)}</td>
+      <td>${badge(r.correlation_ok)}</td>
+      <td>${badge(r.daily_loss_ok)}</td>
+      <td>${vol > 0 ? vol.toFixed(5) : '<span class="dim">—</span>'}</td>
+      <td>${r.notional_usd != null ? '$'+r.notional_usd : '<span class="dim">—</span>'}</td>
+      <td class="${approved ? 'dim' : 'r'}">${approved ? '—' : (r.reason || '').substring(0, 60)}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="12" class="dim">No risk decisions yet</td></tr>';
+  document.getElementById('risk-table').innerHTML = tbody;
+}
+
+// ── Lifecycle Table ──
+async function loadLifecycle() {
+  const rows = await fetch('/api/debug/signals').then(r=>r.json());
+  const tbody = rows.map(r => {
+    const dc = r.direction === 'BUY' ? 'g' : 'r';
+    const result = r.trade_result || 'OPEN';
+    const resultColors = { WIN:'g', LOSS:'r', BREAKEVEN:'y', REJECTED:'dim', OPEN:'c' };
+    const rc = resultColors[result] || 'dim';
+    const fill = parseFloat(r.fill_price || 0);
+    const entry = parseFloat(r.entry || 0);
+    const slippage = fill && entry ? Math.abs(fill - entry) : null;
+    const pnl = parseFloat(r.realized_pnl || 0);
+    const pnlColor = pnl >= 0 ? 'g' : 'r';
+    const rr = r.rr_ratio;
+    const minRr = 1.5;
+    return `<tr>
+      <td class="dim">${r.id}</td>
+      <td class="dim">${fmtAgo(r.created_at)}</td>
+      <td class="y">${r.symbol}</td>
+      <td class="${dc}">${r.direction}</td>
+      <td>${parseFloat(r.confidence||0).toFixed(0)}%</td>
+      <td><span class="${r.zone_type==='support'?'c':'m'}">${r.zone_type||'?'}</span> (str=${r.zone_strength||'?'})</td>
+      <td class="${rr && rr>=minRr?'g':'r'}">${rr != null ? rr.toFixed(2) : '?'}</td>
+      <td>${fmt(r.entry)}</td>
+      <td class="r">${fmt(r.stop_loss)}</td>
+      <td class="g">${fmt(r.take_profit)}</td>
+      <td>${fill ? fmt(r.fill_price) : '<span class="dim">—</span>'}</td>
+      <td class="${slippage && slippage > 0.0001 ? 'y' : 'dim'}">${slippage != null ? slippage.toFixed(5) : '—'}</td>
+      <td>${r.order_id ? '<span class="g">✓</span>' : '<span class="dim">—</span>'}</td>
+      <td class="${rc} bold">${result}</td>
+      <td>${fmt(r.close_price)}</td>
+      <td class="${pnlColor}">${r.realized_pnl != null ? '$'+(pnl>=0?'+':'')+pnl.toFixed(2) : '<span class="dim">open</span>'}</td>
+      <td class="dim">—</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="17" class="dim">No signals yet</td></tr>';
+  document.getElementById('lifecycle-table').innerHTML = tbody;
+}
+
+// ── Event Stream ──
+async function loadEvents() {
+  const events = await fetch('/api/debug/events').then(r=>r.json());
+  const eventColors = {
+    'zone_touch_event':         '#3498db',
+    'analysis_started_event':   '#00bcd4',
+    'signal_generated_event':   '#f1c40f',
+    'risk_evaluated_event':     '#e67e22',
+    'trade_executed_event':     '#2ecc71',
+    'trade_closed_event':       '#27ae60',
+    'zone_event':               '#9b59b6',
+    'zones_refreshed_event':    '#8e44ad',
+    'breakeven_moved_event':    '#f39c12',
+    'trailing_updated_event':   '#d35400',
+  };
+  const html = events.map(e => {
+    const color = eventColors[e.event_type] || '#666';
+    const payload = e.payload || {};
+    // Show key fields from payload
+    const extras = Object.entries(payload)
+      .filter(([k]) => !['timestamp','event_id'].includes(k))
+      .slice(0, 5)
+      .map(([k, v]) => {
+        const vStr = typeof v === 'number' ? parseFloat(v).toFixed(5) : String(v).substring(0,30);
+        return `<span class="dim">${k}=</span><span style="color:#aaa">${vStr}</span>`;
+      })
+      .join('  ');
+    return `<div class="event-row">
+      <span class="event-time">${fmtAgo(e.created_at)}</span>
+      &nbsp;&nbsp;
+      <span class="event-type" style="color:${color}">${e.event_type}</span>
+      <span class="event-sym">${e.symbol || '—'}</span>
+      ${extras}
+    </div>`;
+  }).join('') || '<div class="dim">No events yet</div>';
+  document.getElementById('event-stream').innerHTML = html;
+}
+
+// ── Main refresh ──
+async function refresh() {
+  try {
+    await Promise.all([
+      loadFunnel(), loadConfig(), loadHealth(), loadPnl(),
+      loadZones(), loadTouches(), loadSignals(),
+      loadRisk(), loadLifecycle(), loadEvents(),
+    ]);
+    document.getElementById('last-update').textContent =
+      'Last updated: ' + new Date().toLocaleTimeString();
+  } catch(e) {
+    console.error('Refresh error:', e);
+  }
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

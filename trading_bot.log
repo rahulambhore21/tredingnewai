@@ -12818,3 +12818,195 @@ metatrader_client.exceptions.SymbolNotFoundError: Symbol 'BTCUSD' not found
 2026-06-10 08:27:32 | INFO     | core.db_consumer | Risk decision persisted: EURUSD SELL approved=False reason='EURUSD blocked — correlated pair already open (CORRELATED_PAIRS=[('EURUSD', 'USDJPY')])'
 2026-06-10 08:27:32 | INFO     | agents.risk_agent | RiskAgent verdict for EURUSD: approved=False reason='EURUSD blocked — correlated pair already open (CORRELATED_PAIRS=[('EURUSD', 'USDJPY')])' volume=0.00
 2026-06-10 08:27:32 | INFO     | agents.analysis_agent | AnalysisAgent published signal: EURUSD SELL entry=1.15422 sl=1.15560 tp=1.15170 conf=75.0
+2026-06-10 08:31:51 | INFO     | __main__ | Heartbeat[XAUUSD] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:31:51 | INFO     | __main__ | Heartbeat[EURUSD] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:31:51 | INFO     | __main__ | Heartbeat[USDJPY] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:31:51 | INFO     | __main__ | Heartbeat[BTCUSD] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:31:51 | INFO     | __main__ | Heartbeat — trade_monitor=True
+2026-06-10 08:31:53 | WARNING  | agents.price_watcher | PriceWatcher: failed to get price for BTCUSD: Failed to select symbol 'BTCUSD'
+2026-06-10 08:31:53 | INFO     | agents.price_watcher | PriceWatcher[BTCUSD] alive — mid=n/a zones=n/a
+2026-06-10 08:31:53 | INFO     | agents.price_watcher | PriceWatcher[USDJPY] alive — mid=160.37350 42 zones
+2026-06-10 08:31:53 | INFO     | agents.price_watcher | PriceWatcher[EURUSD] alive — mid=1.15428 40 zones
+2026-06-10 08:31:53 | INFO     | agents.price_watcher | PriceWatcher[XAUUSD] alive — mid=4174.38000 81 zones
+2026-06-10 08:36:51 | INFO     | __main__ | Heartbeat[XAUUSD] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:36:51 | INFO     | __main__ | Heartbeat[EURUSD] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:36:51 | INFO     | __main__ | Heartbeat[USDJPY] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:36:51 | INFO     | __main__ | Heartbeat[BTCUSD] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:36:51 | INFO     | __main__ | Heartbeat — trade_monitor=True
+2026-06-10 08:36:54 | WARNING  | agents.price_watcher | PriceWatcher: failed to get price for BTCUSD: Failed to select symbol 'BTCUSD'
+2026-06-10 08:36:54 | INFO     | agents.price_watcher | PriceWatcher[BTCUSD] alive — mid=n/a zones=n/a
+2026-06-10 08:36:54 | INFO     | agents.price_watcher | PriceWatcher[USDJPY] alive — mid=160.35250 42 zones
+2026-06-10 08:36:54 | INFO     | agents.price_watcher | PriceWatcher[EURUSD] alive — mid=1.15470 40 zones
+2026-06-10 08:36:54 | INFO     | agents.price_watcher | PriceWatcher[XAUUSD] alive — mid=4180.34500 81 zones
+2026-06-10 08:41:51 | INFO     | __main__ | Heartbeat[XAUUSD] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:41:51 | INFO     | __main__ | Heartbeat[EURUSD] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:41:51 | INFO     | __main__ | Heartbeat[USDJPY] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:41:51 | INFO     | __main__ | Heartbeat[BTCUSD] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:41:51 | INFO     | __main__ | Heartbeat — trade_monitor=True
+2026-06-10 08:41:53 | INFO     | agents.price_watcher | Zone touch (wick): USDJPY support zone_id=1879 tf=M5 center=160.25667 mid=160.35850 dist=0.0635%
+2026-06-10 08:41:53 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: USDJPY support center=160.25667
+2026-06-10 08:41:53 | INFO     | agents.analysis_agent | AnalysisAgent: skipping GPT analysis for USDJPY — symbol already has an open position
+2026-06-10 08:41:53 | INFO     | agents.price_watcher | Zone touch (wick): EURUSD resistance zone_id=1877 tf=M5 center=1.15464 mid=1.15474 dist=0.0085%
+2026-06-10 08:41:53 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: EURUSD resistance center=1.15464
+2026-06-10 08:41:55 | WARNING  | agents.price_watcher | PriceWatcher: failed to get price for BTCUSD: Failed to select symbol 'BTCUSD'
+2026-06-10 08:41:55 | INFO     | agents.price_watcher | PriceWatcher[BTCUSD] alive — mid=n/a zones=n/a
+2026-06-10 08:41:55 | INFO     | agents.price_watcher | Zone touch (wick): USDJPY resistance zone_id=1876 tf=M5 center=160.33823 mid=160.35650 dist=0.0114%
+2026-06-10 08:41:55 | INFO     | agents.price_watcher | PriceWatcher[USDJPY] alive — mid=160.35650 42 zones
+2026-06-10 08:41:55 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: USDJPY resistance center=160.33823
+2026-06-10 08:41:55 | INFO     | agents.analysis_agent | AnalysisAgent: skipping GPT analysis for USDJPY — symbol already has an open position
+2026-06-10 08:41:55 | INFO     | agents.price_watcher | Zone touch (wick): EURUSD support zone_id=1882 tf=M5 center=1.15363 mid=1.15475 dist=0.0971%
+2026-06-10 08:41:55 | INFO     | agents.price_watcher | PriceWatcher[EURUSD] alive — mid=1.15475 40 zones
+2026-06-10 08:41:55 | INFO     | agents.price_watcher | PriceWatcher[XAUUSD] alive — mid=4177.10000 81 zones
+2026-06-10 08:41:56 | WARNING  | agents.analysis_agent | AnalysisAgent: H4 trend does NOT align with proposed SELL signal for EURUSD zone_id=1877 — proceeding anyway (htf_alignment=false)
+2026-06-10 08:41:56 | INFO     | core.db_consumer | Signal persisted: EURUSD SELL entry=1.15473 conf=65.0 val_id=27
+2026-06-10 08:41:56 | INFO     | agents.risk_agent | RiskAgent evaluating: EURUSD SELL entry=1.15473 conf=65.0
+2026-06-10 08:41:56 | INFO     | agents.risk_agent | RiskAgent: EURUSD correlated with open USDJPY
+2026-06-10 08:41:56 | INFO     | MT5History | No deals found with the specified parameters.
+2026-06-10 08:41:56 | INFO     | MT5History | No deals found, returning empty DataFrame.
+2026-06-10 08:41:56 | INFO     | core.db_consumer | Risk decision persisted: EURUSD SELL approved=False reason='EURUSD blocked — correlated pair already open (CORRELATED_PAIRS=[('EURUSD', 'USDJPY')])'
+2026-06-10 08:41:56 | INFO     | agents.risk_agent | RiskAgent verdict for EURUSD: approved=False reason='EURUSD blocked — correlated pair already open (CORRELATED_PAIRS=[('EURUSD', 'USDJPY')])' volume=0.00
+2026-06-10 08:41:56 | INFO     | agents.analysis_agent | AnalysisAgent published signal: EURUSD SELL entry=1.15473 sl=1.15520 tp=1.15320 conf=65.0
+2026-06-10 08:41:56 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: EURUSD support center=1.15363
+2026-06-10 08:41:57 | INFO     | agents.price_watcher | Zone touch (wick): USDJPY resistance zone_id=1886 tf=M15 center=160.24425 mid=160.35650 dist=0.0700%
+2026-06-10 08:41:57 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: USDJPY resistance center=160.24425
+2026-06-10 08:41:57 | INFO     | agents.analysis_agent | AnalysisAgent: skipping GPT analysis for USDJPY — symbol already has an open position
+2026-06-10 08:41:59 | INFO     | core.db_consumer | Signal persisted: EURUSD BUY entry=1.15475 conf=70.0 val_id=28
+2026-06-10 08:41:59 | INFO     | agents.risk_agent | RiskAgent evaluating: EURUSD BUY entry=1.15475 conf=70.0
+2026-06-10 08:41:59 | INFO     | agents.risk_agent | RiskAgent: EURUSD correlated with open USDJPY
+2026-06-10 08:41:59 | INFO     | MT5History | No deals found with the specified parameters.
+2026-06-10 08:41:59 | INFO     | MT5History | No deals found, returning empty DataFrame.
+2026-06-10 08:41:59 | INFO     | core.db_consumer | Risk decision persisted: EURUSD BUY approved=False reason='EURUSD blocked — correlated pair already open (CORRELATED_PAIRS=[('EURUSD', 'USDJPY')])'
+2026-06-10 08:41:59 | INFO     | agents.risk_agent | RiskAgent verdict for EURUSD: approved=False reason='EURUSD blocked — correlated pair already open (CORRELATED_PAIRS=[('EURUSD', 'USDJPY')])' volume=0.00
+2026-06-10 08:41:59 | INFO     | agents.analysis_agent | AnalysisAgent published signal: EURUSD BUY entry=1.15475 sl=1.15340 tp=1.15725 conf=70.0
+2026-06-10 08:41:59 | INFO     | agents.price_watcher | Zone touch (wick): USDJPY resistance zone_id=1888 tf=M15 center=160.42740 mid=160.35650 dist=0.0442%
+2026-06-10 08:41:59 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: USDJPY resistance center=160.42740
+2026-06-10 08:41:59 | INFO     | agents.analysis_agent | AnalysisAgent: skipping GPT analysis for USDJPY — symbol already has an open position
+2026-06-10 08:41:59 | INFO     | agents.price_watcher | Zone touch (wick): EURUSD resistance zone_id=1891 tf=M15 center=1.15402 mid=1.15475 dist=0.0629%
+2026-06-10 08:41:59 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: EURUSD resistance center=1.15402
+2026-06-10 08:42:01 | WARNING  | agents.analysis_agent | AnalysisAgent: H4 trend does NOT align with proposed SELL signal for EURUSD zone_id=1891 — proceeding anyway (htf_alignment=false)
+2026-06-10 08:42:01 | INFO     | core.db_consumer | Signal persisted: EURUSD SELL entry=1.15474 conf=65.0 val_id=29
+2026-06-10 08:42:01 | INFO     | agents.risk_agent | RiskAgent evaluating: EURUSD SELL entry=1.15474 conf=65.0
+2026-06-10 08:42:01 | INFO     | agents.risk_agent | RiskAgent: EURUSD correlated with open USDJPY
+2026-06-10 08:42:01 | INFO     | MT5History | No deals found with the specified parameters.
+2026-06-10 08:42:01 | INFO     | MT5History | No deals found, returning empty DataFrame.
+2026-06-10 08:42:01 | INFO     | core.db_consumer | Risk decision persisted: EURUSD SELL approved=False reason='R:R too low (min 1.5); EURUSD blocked — correlated pair already open (CORRELATED_PAIRS=[('EURUSD', 'USDJPY')])'
+2026-06-10 08:42:01 | INFO     | agents.risk_agent | RiskAgent verdict for EURUSD: approved=False reason='R:R too low (min 1.5); EURUSD blocked — correlated pair already open (CORRELATED_PAIRS=[('EURUSD', 'USDJPY')])' volume=0.00
+2026-06-10 08:42:01 | INFO     | agents.analysis_agent | AnalysisAgent published signal: EURUSD SELL entry=1.15474 sl=1.15720 tp=1.15174 conf=65.0
+2026-06-10 08:42:01 | INFO     | agents.price_watcher | Zone touch (wick): USDJPY support zone_id=1893 tf=M15 center=160.27867 mid=160.35650 dist=0.0486%
+2026-06-10 08:42:01 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: USDJPY support center=160.27867
+2026-06-10 08:42:01 | INFO     | agents.analysis_agent | AnalysisAgent: skipping GPT analysis for USDJPY — symbol already has an open position
+2026-06-10 08:42:01 | INFO     | agents.price_watcher | Zone touch (wick): EURUSD support zone_id=1236 tf=D1 center=1.15418 mid=1.15474 dist=0.0485%
+2026-06-10 08:42:01 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: EURUSD support center=1.15418
+2026-06-10 08:42:03 | WARNING  | agents.analysis_agent | AnalysisAgent: H4 trend does NOT align with proposed BUY signal for EURUSD zone_id=1236 — proceeding anyway (htf_alignment=false)
+2026-06-10 08:42:03 | INFO     | agents.analysis_agent | AnalysisAgent: signal for EURUSD dropped — confidence 55.0 < 65.0
+2026-06-10 08:42:29 | INFO     | agents.price_watcher | Zone touch (wick): EURUSD resistance zone_id=1894 tf=M15 center=1.15537 mid=1.15481 dist=0.0485%
+2026-06-10 08:42:29 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: EURUSD resistance center=1.15537
+2026-06-10 08:42:33 | INFO     | core.db_consumer | Signal persisted: EURUSD SELL entry=1.15500 conf=75.0 val_id=30
+2026-06-10 08:42:33 | INFO     | agents.risk_agent | RiskAgent evaluating: EURUSD SELL entry=1.15500 conf=75.0
+2026-06-10 08:42:33 | INFO     | agents.risk_agent | RiskAgent: EURUSD correlated with open USDJPY
+2026-06-10 08:42:33 | INFO     | MT5History | No deals found with the specified parameters.
+2026-06-10 08:42:33 | INFO     | MT5History | No deals found, returning empty DataFrame.
+2026-06-10 08:42:33 | INFO     | core.db_consumer | Risk decision persisted: EURUSD SELL approved=False reason='R:R too low (min 1.5); EURUSD blocked — correlated pair already open (CORRELATED_PAIRS=[('EURUSD', 'USDJPY')])'
+2026-06-10 08:42:33 | INFO     | agents.risk_agent | RiskAgent verdict for EURUSD: approved=False reason='R:R too low (min 1.5); EURUSD blocked — correlated pair already open (CORRELATED_PAIRS=[('EURUSD', 'USDJPY')])' volume=0.00
+2026-06-10 08:42:33 | INFO     | agents.analysis_agent | AnalysisAgent published signal: EURUSD SELL entry=1.15500 sl=1.15785 tp=1.15150 conf=75.0
+2026-06-10 08:46:51 | INFO     | __main__ | Heartbeat[XAUUSD] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:46:51 | INFO     | __main__ | Heartbeat[EURUSD] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:46:51 | INFO     | __main__ | Heartbeat[USDJPY] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:46:51 | INFO     | __main__ | Heartbeat[BTCUSD] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:46:51 | INFO     | __main__ | Heartbeat — trade_monitor=True
+2026-06-10 08:46:56 | WARNING  | agents.price_watcher | PriceWatcher: failed to get price for BTCUSD: Failed to select symbol 'BTCUSD'
+2026-06-10 08:46:56 | INFO     | agents.price_watcher | PriceWatcher[BTCUSD] alive — mid=n/a zones=n/a
+2026-06-10 08:46:56 | INFO     | agents.price_watcher | PriceWatcher[USDJPY] alive — mid=160.35350 42 zones
+2026-06-10 08:46:56 | INFO     | agents.price_watcher | PriceWatcher[EURUSD] alive — mid=1.15491 40 zones
+2026-06-10 08:46:57 | INFO     | agents.price_watcher | PriceWatcher[XAUUSD] alive — mid=4180.67500 81 zones
+2026-06-10 08:51:51 | INFO     | __main__ | Heartbeat[XAUUSD] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:51:51 | INFO     | __main__ | Heartbeat[EURUSD] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:51:51 | INFO     | __main__ | Heartbeat[USDJPY] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:51:51 | INFO     | __main__ | Heartbeat[BTCUSD] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:51:51 | INFO     | __main__ | Heartbeat — trade_monitor=True
+2026-06-10 08:51:57 | WARNING  | agents.price_watcher | PriceWatcher: failed to get price for BTCUSD: Failed to select symbol 'BTCUSD'
+2026-06-10 08:51:57 | INFO     | agents.price_watcher | PriceWatcher[BTCUSD] alive — mid=n/a zones=n/a
+2026-06-10 08:51:58 | INFO     | agents.price_watcher | PriceWatcher[USDJPY] alive — mid=160.35350 42 zones
+2026-06-10 08:51:58 | INFO     | agents.price_watcher | PriceWatcher[EURUSD] alive — mid=1.15473 40 zones
+2026-06-10 08:51:58 | INFO     | agents.price_watcher | PriceWatcher[XAUUSD] alive — mid=4174.54000 81 zones
+2026-06-10 08:56:52 | INFO     | __main__ | Heartbeat[XAUUSD] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:56:52 | INFO     | __main__ | Heartbeat[EURUSD] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:56:52 | INFO     | __main__ | Heartbeat[USDJPY] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:56:52 | INFO     | __main__ | Heartbeat[BTCUSD] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 08:56:52 | INFO     | __main__ | Heartbeat — trade_monitor=True
+2026-06-10 08:56:55 | INFO     | agents.price_watcher | Zone touch (wick): USDJPY support zone_id=1879 tf=M5 center=160.25667 mid=160.35450 dist=0.0610%
+2026-06-10 08:56:55 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: USDJPY support center=160.25667
+2026-06-10 08:56:55 | INFO     | agents.analysis_agent | AnalysisAgent: skipping GPT analysis for USDJPY — symbol already has an open position
+2026-06-10 08:56:55 | INFO     | agents.price_watcher | Zone touch (wick): EURUSD resistance zone_id=1877 tf=M5 center=1.15464 mid=1.15468 dist=0.0033%
+2026-06-10 08:56:55 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: EURUSD resistance center=1.15464
+2026-06-10 08:56:57 | INFO     | agents.price_watcher | Zone touch (wick): USDJPY resistance zone_id=1876 tf=M5 center=160.33823 mid=160.35450 dist=0.0101%
+2026-06-10 08:56:57 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: USDJPY resistance center=160.33823
+2026-06-10 08:56:57 | INFO     | agents.analysis_agent | AnalysisAgent: skipping GPT analysis for USDJPY — symbol already has an open position
+2026-06-10 08:56:57 | INFO     | agents.price_watcher | Zone touch (wick): EURUSD support zone_id=1882 tf=M5 center=1.15363 mid=1.15467 dist=0.0902%
+2026-06-10 08:56:58 | INFO     | core.db_consumer | Signal persisted: EURUSD SELL entry=1.15464 conf=65.0 val_id=31
+2026-06-10 08:56:58 | INFO     | agents.risk_agent | RiskAgent evaluating: EURUSD SELL entry=1.15464 conf=65.0
+2026-06-10 08:56:58 | INFO     | agents.risk_agent | RiskAgent: EURUSD correlated with open USDJPY
+2026-06-10 08:56:58 | INFO     | MT5History | No deals found with the specified parameters.
+2026-06-10 08:56:58 | INFO     | MT5History | No deals found, returning empty DataFrame.
+2026-06-10 08:56:58 | INFO     | core.db_consumer | Risk decision persisted: EURUSD SELL approved=False reason='EURUSD blocked — correlated pair already open (CORRELATED_PAIRS=[('EURUSD', 'USDJPY')])'
+2026-06-10 08:56:58 | INFO     | agents.risk_agent | RiskAgent verdict for EURUSD: approved=False reason='EURUSD blocked — correlated pair already open (CORRELATED_PAIRS=[('EURUSD', 'USDJPY')])' volume=0.00
+2026-06-10 08:56:58 | INFO     | agents.analysis_agent | AnalysisAgent published signal: EURUSD SELL entry=1.15464 sl=1.15520 tp=1.15320 conf=65.0
+2026-06-10 08:56:58 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: EURUSD support center=1.15363
+2026-06-10 08:56:59 | WARNING  | agents.price_watcher | PriceWatcher: failed to get price for BTCUSD: Failed to select symbol 'BTCUSD'
+2026-06-10 08:56:59 | INFO     | agents.price_watcher | PriceWatcher[BTCUSD] alive — mid=n/a zones=n/a
+2026-06-10 08:56:59 | INFO     | agents.price_watcher | Zone touch (wick): USDJPY resistance zone_id=1886 tf=M15 center=160.24425 mid=160.35450 dist=0.0688%
+2026-06-10 08:56:59 | INFO     | agents.price_watcher | PriceWatcher[USDJPY] alive — mid=160.35450 42 zones
+2026-06-10 08:56:59 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: USDJPY resistance center=160.24425
+2026-06-10 08:56:59 | INFO     | agents.analysis_agent | AnalysisAgent: skipping GPT analysis for USDJPY — symbol already has an open position
+2026-06-10 08:56:59 | INFO     | agents.price_watcher | PriceWatcher[EURUSD] alive — mid=1.15466 40 zones
+2026-06-10 08:56:59 | INFO     | agents.price_watcher | PriceWatcher[XAUUSD] alive — mid=4178.85500 81 zones
+2026-06-10 08:57:00 | INFO     | core.db_consumer | Signal persisted: EURUSD BUY entry=1.15467 conf=75.0 val_id=32
+2026-06-10 08:57:00 | INFO     | agents.risk_agent | RiskAgent evaluating: EURUSD BUY entry=1.15467 conf=75.0
+2026-06-10 08:57:00 | INFO     | agents.risk_agent | RiskAgent: EURUSD correlated with open USDJPY
+2026-06-10 08:57:00 | INFO     | MT5History | No deals found with the specified parameters.
+2026-06-10 08:57:00 | INFO     | MT5History | No deals found, returning empty DataFrame.
+2026-06-10 08:57:00 | INFO     | core.db_consumer | Risk decision persisted: EURUSD BUY approved=False reason='EURUSD blocked — correlated pair already open (CORRELATED_PAIRS=[('EURUSD', 'USDJPY')])'
+2026-06-10 08:57:00 | INFO     | agents.risk_agent | RiskAgent verdict for EURUSD: approved=False reason='EURUSD blocked — correlated pair already open (CORRELATED_PAIRS=[('EURUSD', 'USDJPY')])' volume=0.00
+2026-06-10 08:57:00 | INFO     | agents.analysis_agent | AnalysisAgent published signal: EURUSD BUY entry=1.15467 sl=1.15330 tp=1.15700 conf=75.0
+2026-06-10 08:57:01 | INFO     | agents.price_watcher | Zone touch (wick): USDJPY resistance zone_id=1888 tf=M15 center=160.42740 mid=160.35350 dist=0.0461%
+2026-06-10 08:57:01 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: USDJPY resistance center=160.42740
+2026-06-10 08:57:01 | INFO     | agents.analysis_agent | AnalysisAgent: skipping GPT analysis for USDJPY — symbol already has an open position
+2026-06-10 08:57:01 | INFO     | agents.price_watcher | Zone touch (wick): EURUSD resistance zone_id=1891 tf=M15 center=1.15402 mid=1.15467 dist=0.0560%
+2026-06-10 08:57:01 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: EURUSD resistance center=1.15402
+2026-06-10 08:57:03 | WARNING  | agents.analysis_agent | AnalysisAgent: H4 trend does NOT align with proposed SELL signal for EURUSD zone_id=1891 — proceeding anyway (htf_alignment=false)
+2026-06-10 08:57:03 | INFO     | core.db_consumer | Signal persisted: EURUSD SELL entry=1.15464 conf=70.0 val_id=33
+2026-06-10 08:57:03 | INFO     | agents.risk_agent | RiskAgent evaluating: EURUSD SELL entry=1.15464 conf=70.0
+2026-06-10 08:57:03 | INFO     | agents.risk_agent | RiskAgent: EURUSD correlated with open USDJPY
+2026-06-10 08:57:03 | INFO     | MT5History | No deals found with the specified parameters.
+2026-06-10 08:57:03 | INFO     | MT5History | No deals found, returning empty DataFrame.
+2026-06-10 08:57:03 | INFO     | core.db_consumer | Risk decision persisted: EURUSD SELL approved=False reason='EURUSD blocked — correlated pair already open (CORRELATED_PAIRS=[('EURUSD', 'USDJPY')])'
+2026-06-10 08:57:03 | INFO     | agents.risk_agent | RiskAgent verdict for EURUSD: approved=False reason='EURUSD blocked — correlated pair already open (CORRELATED_PAIRS=[('EURUSD', 'USDJPY')])' volume=0.00
+2026-06-10 08:57:03 | INFO     | agents.analysis_agent | AnalysisAgent published signal: EURUSD SELL entry=1.15464 sl=1.15560 tp=1.15250 conf=70.0
+2026-06-10 08:57:03 | INFO     | agents.price_watcher | Zone touch (wick): USDJPY support zone_id=1893 tf=M15 center=160.27867 mid=160.35350 dist=0.0467%
+2026-06-10 08:57:03 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: USDJPY support center=160.27867
+2026-06-10 08:57:03 | INFO     | agents.analysis_agent | AnalysisAgent: skipping GPT analysis for USDJPY — symbol already has an open position
+2026-06-10 08:57:03 | INFO     | agents.price_watcher | Zone touch (wick): EURUSD support zone_id=1236 tf=D1 center=1.15418 mid=1.15467 dist=0.0420%
+2026-06-10 08:57:03 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: EURUSD support center=1.15418
+2026-06-10 08:57:05 | WARNING  | agents.analysis_agent | AnalysisAgent: H4 trend does NOT align with proposed BUY signal for EURUSD zone_id=1236 — proceeding anyway (htf_alignment=false)
+2026-06-10 08:57:05 | INFO     | agents.analysis_agent | AnalysisAgent: signal for EURUSD dropped — confidence 60.0 < 65.0
+2026-06-10 08:57:31 | INFO     | agents.price_watcher | Zone touch (wick): EURUSD resistance zone_id=1894 tf=M15 center=1.15537 mid=1.15468 dist=0.0593%
+2026-06-10 08:57:31 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: EURUSD resistance center=1.15537
+2026-06-10 08:57:33 | WARNING  | agents.analysis_agent | AnalysisAgent: H4 trend does NOT align with proposed SELL signal for EURUSD zone_id=1894 — proceeding anyway (htf_alignment=false)
+2026-06-10 08:57:33 | INFO     | core.db_consumer | Signal persisted: EURUSD SELL entry=1.15468 conf=70.0 val_id=34
+2026-06-10 08:57:33 | INFO     | agents.risk_agent | RiskAgent evaluating: EURUSD SELL entry=1.15468 conf=70.0
+2026-06-10 08:57:33 | INFO     | agents.risk_agent | RiskAgent: EURUSD correlated with open USDJPY
+2026-06-10 08:57:33 | INFO     | MT5History | No deals found with the specified parameters.
+2026-06-10 08:57:33 | INFO     | MT5History | No deals found, returning empty DataFrame.
+2026-06-10 08:57:33 | INFO     | core.db_consumer | Risk decision persisted: EURUSD SELL approved=False reason='EURUSD blocked — correlated pair already open (CORRELATED_PAIRS=[('EURUSD', 'USDJPY')])'
+2026-06-10 08:57:33 | INFO     | agents.risk_agent | RiskAgent verdict for EURUSD: approved=False reason='EURUSD blocked — correlated pair already open (CORRELATED_PAIRS=[('EURUSD', 'USDJPY')])' volume=0.00
+2026-06-10 08:57:33 | INFO     | agents.analysis_agent | AnalysisAgent published signal: EURUSD SELL entry=1.15468 sl=1.15600 tp=1.15240 conf=70.0
+2026-06-10 09:01:52 | INFO     | __main__ | Heartbeat[XAUUSD] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 09:01:52 | INFO     | __main__ | Heartbeat[EURUSD] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 09:01:52 | INFO     | __main__ | Heartbeat[USDJPY] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 09:01:52 | INFO     | __main__ | Heartbeat[BTCUSD] — sr_mapper=True  price_watcher=True  analysis=True
+2026-06-10 09:01:52 | INFO     | __main__ | Heartbeat — trade_monitor=True
+2026-06-10 09:02:00 | WARNING  | agents.price_watcher | PriceWatcher: failed to get price for BTCUSD: Failed to select symbol 'BTCUSD'
+2026-06-10 09:02:00 | INFO     | agents.price_watcher | PriceWatcher[BTCUSD] alive — mid=n/a zones=n/a
+2026-06-10 09:02:00 | INFO     | agents.price_watcher | PriceWatcher[USDJPY] alive — mid=160.35850 42 zones
+2026-06-10 09:02:00 | INFO     | agents.price_watcher | PriceWatcher[EURUSD] alive — mid=1.15472 40 zones
+2026-06-10 09:02:01 | INFO     | agents.price_watcher | PriceWatcher[XAUUSD] alive — mid=4179.25500 81 zones

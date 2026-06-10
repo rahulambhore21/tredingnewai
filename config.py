@@ -30,6 +30,8 @@ def resolve_symbol(base_symbol: str) -> str:
         resolve_symbol("EURUSD") → "EURUSD" (suffix="")
         resolve_symbol("EURUSD") → "EURUSD.r" (suffix=".r")
     """
+    if base_symbol == "BTCUSD":
+        return f"BTC{SYMBOL_SUFFIX}"
     return f"{base_symbol}{SYMBOL_SUFFIX}"
 
 

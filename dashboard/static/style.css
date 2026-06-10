@@ -77,6 +77,30 @@ header {
 
 .clock { font-size: 12px; letter-spacing: 1px; color: var(--muted); }
 
+/* ── Navigation ──────────────────────────────────────────────────────────── */
+
+.nav {
+  display: flex;
+  gap: 8px;
+  margin-left: 20px;
+  margin-right: auto;
+}
+
+.nav a {
+  color: var(--muted);
+  text-decoration: none;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 11px;
+}
+
+.nav a:hover, .nav a.active {
+  color: var(--amber);
+  border-color: var(--amber);
+  background: var(--amber-dim);
+}
+
 /* ── Grid ────────────────────────────────────────────────────────────────── */
 
 .grid-main {
