@@ -146,16 +146,20 @@ class RiskAgent:
             failures.append("Open-trade count check error")
 
         # ----------------------------------------------------------
-        # Check 3: Correlated pair not both open
+        # Check 3: Correlated pair check
+        # open_bases is populated by Check 2 above; empty on exception → pass-through
         # ----------------------------------------------------------
-        correlation_ok = True
+        correlation_ok = False
         try:
             correlation_ok = self._check_correlation(event.symbol, open_bases)
             if not correlation_ok:
-                failures.append("Correlated pair already open")
+                failures.append(
+                    f"{event.symbol} blocked — correlated pair already open "
+                    f"(CORRELATED_PAIRS={config.CORRELATED_PAIRS})"
+                )
         except Exception:
-            logger.exception("RiskAgent: correlation check failed")
-            failures.append("Correlation check error")
+            logger.exception("RiskAgent: correlation check raised — failing open")
+            correlation_ok = True   # can't determine, don't block on internal error
 
         # ----------------------------------------------------------
         # Check 4: Today's realised P&L within [-DAILY_LOSS_LIMIT_USD, +DAILY_PROFIT_TARGET_USD]

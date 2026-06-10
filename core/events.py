@@ -131,6 +131,8 @@ class SignalGeneratedEvent(Event):
     zone_type: str
     zone_center: float
     zone_id: Optional[int] = None
+    zone_strength: Optional[int] = None   # number of pivots in the triggering zone
+    timeframe: Optional[str] = None        # MT5 timeframe the zone was mapped on
 
     # Indicator snapshot at signal time
     ema21: Optional[float] = None
@@ -225,3 +227,54 @@ class TradeClosedEvent(Event):
     order_id: int                            # MT5 position ticket
     close_price: Optional[float] = None     # exit price from deal history
     realized_pnl: Optional[float] = None   # actual P&L in account currency
+
+
+# ---------------------------------------------------------------------------
+# Audit lifecycle events (Phase 2)
+# ---------------------------------------------------------------------------
+
+class AnalysisStartedEvent(Event):
+    """
+    Emitted by analysis_agent immediately before the GPT-4o API call is made.
+    Allows measurement of analysis latency and zone-to-signal conversion rate.
+    """
+
+    event_type: str = "analysis_started_event"
+
+    symbol: str
+    zone_id: Optional[int] = None
+    zone_type: str
+    zone_center: float
+    timeframe: str
+
+
+class BreakevenMovedEvent(Event):
+    """
+    Emitted by trade_monitor when the stop-loss is moved to the entry price
+    (breakeven) after price reaches BREAKEVEN_TRIGGER_PCT of the TP distance.
+    """
+
+    event_type: str = "breakeven_moved_event"
+
+    symbol: str
+    direction: str
+    position_id: int
+    entry_price: float
+    new_sl: float
+    current_price: float
+
+
+class TrailingUpdatedEvent(Event):
+    """
+    Emitted by trade_monitor whenever the trailing stop is tightened
+    after price reaches TRAIL_TRIGGER_PCT of the TP distance.
+    """
+
+    event_type: str = "trailing_updated_event"
+
+    symbol: str
+    direction: str
+    position_id: int
+    old_sl: float
+    new_sl: float
+    current_price: float

@@ -21,14 +21,17 @@ from core.database import Database
 from core.event_bus import EventBus
 from core.notifier import Notifier
 from core.events import (
+    AnalysisStartedEvent,
+    BreakevenMovedEvent,
     Event,
+    RiskEvaluatedEvent,
+    SignalGeneratedEvent,
+    TradeClosedEvent,
+    TradeExecutedEvent,
+    TrailingUpdatedEvent,
     ZoneEvent,
     ZonesRefreshedEvent,
     ZoneTouchEvent,
-    SignalGeneratedEvent,
-    RiskEvaluatedEvent,
-    TradeExecutedEvent,
-    TradeClosedEvent,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,6 +70,10 @@ class DBConsumer:
         self._notifier = Notifier()
         # Tracks the most recent signal DB id per symbol for risk_decision linkage
         self._last_signal_id: Dict[str, int] = {}
+        # Tracks the most recent validation_log id per symbol for lifecycle updates
+        self._last_validation_id: Dict[str, int] = {}
+        # Maps MT5 order_id → validation_log id for close-time updates
+        self._validation_id_by_order: Dict[int, int] = {}
         self._wire_subscriptions()
         logger.info("DBConsumer initialised and subscriptions wired.")
 
@@ -75,10 +82,13 @@ class DBConsumer:
         self._bus.subscribe(ZoneEvent, self._on_zone_event)
         self._bus.subscribe(ZonesRefreshedEvent, self._on_zones_refreshed)
         self._bus.subscribe(ZoneTouchEvent, self._on_zone_touch)
+        self._bus.subscribe(AnalysisStartedEvent, self._on_analysis_started)
         self._bus.subscribe(SignalGeneratedEvent, self._on_signal)
         self._bus.subscribe(RiskEvaluatedEvent, self._on_risk)
         self._bus.subscribe(TradeExecutedEvent, self._on_trade)
         self._bus.subscribe(TradeClosedEvent, self._on_trade_closed)
+        self._bus.subscribe(BreakevenMovedEvent, self._on_sl_move)
+        self._bus.subscribe(TrailingUpdatedEvent, self._on_sl_move)
 
     # ------------------------------------------------------------------
     # ZoneEvent — new S/R zone discovered by sr_mapper
@@ -147,11 +157,30 @@ class DBConsumer:
             logger.exception("DBConsumer._on_zone_touch failed for %s", event)
 
     # ------------------------------------------------------------------
+    # AnalysisStartedEvent — GPT call about to be made
+    # ------------------------------------------------------------------
+
+    def _on_analysis_started(self, event: AnalysisStartedEvent) -> None:
+        """Log that analysis was started so zone-to-signal conversion can be measured."""
+        try:
+            self._db.insert_event_log(
+                event_type=event.event_type,
+                symbol=event.symbol,
+                payload=_to_json(event),
+            )
+            logger.debug(
+                "AnalysisStartedEvent logged for %s zone_id=%s tf=%s",
+                event.symbol, event.zone_id, event.timeframe,
+            )
+        except Exception:
+            logger.exception("DBConsumer._on_analysis_started failed for %s", event)
+
+    # ------------------------------------------------------------------
     # SignalGeneratedEvent — GPT-4o produced a signal
     # ------------------------------------------------------------------
 
     def _on_signal(self, event: SignalGeneratedEvent) -> None:
-        """Persist signal data to the signals table and the audit log."""
+        """Persist signal data to the signals table, validation_log, and the audit log."""
         try:
             signal_id = self._db.insert_signal(
                 symbol=event.symbol,
@@ -170,14 +199,31 @@ class DBConsumer:
                 macd_hist=event.macd_hist,
             )
             self._last_signal_id[event.symbol] = signal_id
+
+            # Open a validation_log row — risk/trade/close handlers update it
+            val_id = self._db.insert_validation_log(
+                symbol=event.symbol,
+                timeframe=event.timeframe,
+                zone_id=event.zone_id,
+                zone_type=event.zone_type,
+                zone_strength=event.zone_strength,
+                ai_decision=event.direction,
+                confidence=event.confidence,
+                entry=event.entry,
+                stop_loss=event.stop_loss,
+                take_profit=event.take_profit,
+                signal_id=signal_id,
+            )
+            self._last_validation_id[event.symbol] = val_id
+
             self._db.insert_event_log(
                 event_type=event.event_type,
                 symbol=event.symbol,
                 payload=_to_json(event),
             )
             logger.info(
-                "Signal persisted: %s %s entry=%.5f conf=%.1f",
-                event.symbol, event.direction, event.entry, event.confidence,
+                "Signal persisted: %s %s entry=%.5f conf=%.1f val_id=%d",
+                event.symbol, event.direction, event.entry, event.confidence, val_id,
             )
         except Exception:
             logger.exception("DBConsumer._on_signal failed for %s", event)
@@ -202,11 +248,21 @@ class DBConsumer:
                 daily_loss_ok=event.daily_loss_ok,
                 weekly_loss_ok=event.weekly_loss_ok,
             )
+            # Split into granular event types for easier audit querying
+            audit_event_type = (
+                "risk_approved_event" if event.approved else "risk_rejected_event"
+            )
             self._db.insert_event_log(
-                event_type=event.event_type,
+                event_type=audit_event_type,
                 symbol=event.symbol,
                 payload=_to_json(event),
             )
+            # Update validation_log with risk verdict
+            val_id = self._last_validation_id.get(event.symbol)
+            if val_id is not None:
+                self._db.update_validation_log_risk(
+                    val_id, event.approved, event.reason
+                )
             logger.info(
                 "Risk decision persisted: %s %s approved=%s reason='%s'",
                 event.symbol, event.direction, event.approved, event.reason,
@@ -240,6 +296,11 @@ class DBConsumer:
                 symbol=event.symbol,
                 payload=_to_json(event),
             )
+            # Link validation_log to MT5 order so close handler can update it
+            val_id = self._last_validation_id.get(event.symbol)
+            if val_id is not None and event.order_id:
+                self._db.update_validation_log_trade(val_id, event.order_id, event.fill_price)
+                self._validation_id_by_order[event.order_id] = val_id
             logger.info(
                 "Trade persisted: %s %s vol=%.2f success=%s order_id=%s",
                 event.symbol, event.direction, event.volume, event.success, event.order_id,
@@ -269,14 +330,53 @@ class DBConsumer:
                 symbol=event.symbol,
                 payload=_to_json(event),
             )
+            # Finalize validation_log: determine WIN/LOSS/BREAKEVEN
+            val_id = self._validation_id_by_order.pop(event.order_id, None)
+            if val_id is not None:
+                pnl = event.realized_pnl or 0.0
+                if pnl > 0:
+                    result = "WIN"
+                elif pnl < 0:
+                    result = "LOSS"
+                else:
+                    result = "BREAKEVEN"
+                self._db.update_validation_log_close(
+                    val_id,
+                    close_price=event.close_price,
+                    realized_pnl=event.realized_pnl,
+                    trade_result=result,
+                    closed_at=event.timestamp.isoformat(),
+                )
             logger.info(
                 "Trade close persisted: order_id=%d %s %s pnl=%.2f",
                 event.order_id, event.symbol, event.direction, event.realized_pnl or 0.0,
             )
-            close_reason = getattr(event, "close_reason", "unknown")
+            pnl = event.realized_pnl or 0.0
+            pnl_emoji = "✅" if pnl >= 0 else "❌"
+            close_price_str = f"{event.close_price:.5f}" if event.close_price else "unknown"
             self._notifier.send(
-                f"🔴 Trade Closed: {event.symbol} | "
-                f"P&L: {event.realized_pnl} | Reason: {close_reason}"
+                f"🔴 Trade Closed: {event.symbol} {event.direction}\n"
+                f"📦 Lot: {event.volume} | Order: {event.order_id}\n"
+                f"📥 Entry: {event.entry_price:.5f} → 📤 Close: {close_price_str}\n"
+                f"{pnl_emoji} P&L: {pnl:+.2f} USD"
             )
         except Exception:
             logger.exception("DBConsumer._on_trade_closed failed for %s", event)
+
+    # ------------------------------------------------------------------
+    # SL move events (breakeven + trailing)
+    # ------------------------------------------------------------------
+
+    def _on_sl_move(self, event: Any) -> None:
+        """Log breakeven and trailing stop moves to the audit table."""
+        try:
+            self._db.insert_event_log(
+                event_type=event.event_type,
+                symbol=event.symbol,
+                payload=_to_json(event),
+            )
+            logger.debug("SL move logged: %s for %s pos=%s",
+                         event.event_type, event.symbol,
+                         getattr(event, "position_id", "?"))
+        except Exception:
+            logger.exception("DBConsumer._on_sl_move failed for %s", event)

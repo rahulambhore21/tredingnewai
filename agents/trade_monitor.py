@@ -23,8 +23,14 @@ from typing import Dict, Optional, Set
 
 from metatrader_client import MT5Client
 
+import config
 from core.event_bus import EventBus
-from core.events import TradeClosedEvent, TradeExecutedEvent
+from core.events import (
+    BreakevenMovedEvent,
+    TradeClosedEvent,
+    TradeExecutedEvent,
+    TrailingUpdatedEvent,
+)
 from core.signal_tracker import SignalTracker
 
 logger = logging.getLogger(__name__)
@@ -51,8 +57,10 @@ class TradeMonitor:
         self._bus     = bus
         self._tracker = signal_tracker
 
-        # position_id → {symbol, direction, volume, entry_price, sl, tp}
+        # position_id → {symbol, direction, volume, entry_price, stop_loss, take_profit}
         self._tracked: Dict[int, Dict] = {}
+        # position_id → {breakeven_done: bool, current_sl: float}
+        self._sl_state: Dict[int, Dict] = {}
         self._lock = threading.Lock()
 
         self._stop_event = threading.Event()
@@ -97,9 +105,14 @@ class TradeMonitor:
                 "symbol":      event.symbol,
                 "direction":   event.direction,
                 "volume":      event.volume,
-                "entry_price": event.entry,
+                # Use the actual broker fill price; fall back to signal entry on dry-run
+                "entry_price": event.fill_price or event.entry,
                 "stop_loss":   event.stop_loss,
                 "take_profit": event.take_profit,
+            }
+            self._sl_state[event.order_id] = {
+                "breakeven_done": False,
+                "current_sl":     event.stop_loss,
             }
         logger.info(
             "TradeMonitor: tracking position %d (%s %s)",
@@ -117,6 +130,10 @@ class TradeMonitor:
                 self._check_closed_positions()
             except Exception:
                 logger.exception("TradeMonitor._check_closed_positions raised")
+            try:
+                self._manage_stops()
+            except Exception:
+                logger.exception("TradeMonitor._manage_stops raised")
             self._stop_event.wait(timeout=POLL_INTERVAL_SEC)
 
     def _check_closed_positions(self) -> None:
@@ -143,6 +160,7 @@ class TradeMonitor:
         for position_id in closed_ids:
             with self._lock:
                 trade_info = self._tracked.pop(position_id, None)
+                self._sl_state.pop(position_id, None)
             if trade_info:
                 self._handle_closed(position_id, trade_info)
 
@@ -177,6 +195,177 @@ class TradeMonitor:
                 realized_pnl=realized_pnl,
             )
         )
+
+    # ------------------------------------------------------------------
+    # Trailing / breakeven stop management
+    # ------------------------------------------------------------------
+
+    def _manage_stops(self) -> None:
+        """
+        For each tracked open position, move the SL to breakeven once price
+        reaches BREAKEVEN_TRIGGER_PCT of the TP distance, then trail the SL
+        once price reaches TRAIL_TRIGGER_PCT.  Only ever moves SL in the
+        profitable direction — never backward.
+        """
+        with self._lock:
+            snapshot = list(self._tracked.items())
+
+        for position_id, info in snapshot:
+            try:
+                symbol = config.resolve_symbol(info["symbol"])
+                price_data = self._client.market.get_symbol_price(symbol)
+                if not price_data:
+                    continue
+
+                direction    = info["direction"]
+                entry        = info["entry_price"]
+                original_sl  = info["stop_loss"]
+                tp           = info["take_profit"]
+
+                with self._lock:
+                    state = self._sl_state.get(position_id)
+                if state is None:
+                    continue
+
+                current_sl = state["current_sl"]
+
+                if direction == "BUY":
+                    current_price = float(price_data.get("bid", 0))
+                    tp_distance   = tp - entry
+                    risk_distance = entry - original_sl
+                    if tp_distance <= 0:
+                        continue
+                    progress = (current_price - entry) / tp_distance
+
+                    new_sl    = None
+                    move_type = None
+                    if not state["breakeven_done"] and progress >= config.BREAKEVEN_TRIGGER_PCT:
+                        new_sl    = entry
+                        move_type = "breakeven"
+                    elif progress >= config.TRAIL_TRIGGER_PCT:
+                        trail_buffer = config.TRAIL_DISTANCE_RATIO * risk_distance
+                        candidate    = current_price - trail_buffer
+                        if candidate > current_sl:
+                            new_sl    = candidate
+                            move_type = "trailing"
+
+                    if new_sl is not None and new_sl > current_sl:
+                        old_sl = current_sl
+                        if self._modify_sl(position_id, info, new_sl, current_price):
+                            with self._lock:
+                                if position_id in self._sl_state:
+                                    self._sl_state[position_id]["current_sl"]     = new_sl
+                                    self._sl_state[position_id]["breakeven_done"] = True
+                            self._emit_sl_event(
+                                move_type, position_id, info, old_sl, new_sl, current_price
+                            )
+
+                elif direction == "SELL":
+                    current_price = float(price_data.get("ask", 0))
+                    tp_distance   = entry - tp
+                    risk_distance = original_sl - entry
+                    if tp_distance <= 0:
+                        continue
+                    progress = (entry - current_price) / tp_distance
+
+                    new_sl    = None
+                    move_type = None
+                    if not state["breakeven_done"] and progress >= config.BREAKEVEN_TRIGGER_PCT:
+                        new_sl    = entry
+                        move_type = "breakeven"
+                    elif progress >= config.TRAIL_TRIGGER_PCT:
+                        trail_buffer = config.TRAIL_DISTANCE_RATIO * risk_distance
+                        candidate    = current_price + trail_buffer
+                        if candidate < current_sl:
+                            new_sl    = candidate
+                            move_type = "trailing"
+
+                    if new_sl is not None and new_sl < current_sl:
+                        old_sl = current_sl
+                        if self._modify_sl(position_id, info, new_sl, current_price):
+                            with self._lock:
+                                if position_id in self._sl_state:
+                                    self._sl_state[position_id]["current_sl"]     = new_sl
+                                    self._sl_state[position_id]["breakeven_done"] = True
+                            self._emit_sl_event(
+                                move_type, position_id, info, old_sl, new_sl, current_price
+                            )
+
+            except Exception:
+                logger.exception(
+                    "TradeMonitor._manage_stops: error processing position %d", position_id
+                )
+
+    def _emit_sl_event(
+        self,
+        move_type: Optional[str],
+        position_id: int,
+        info: Dict,
+        old_sl: float,
+        new_sl: float,
+        current_price: float,
+    ) -> None:
+        """Publish a BreakevenMovedEvent or TrailingUpdatedEvent after a successful SL move."""
+        try:
+            if move_type == "breakeven":
+                self._bus.publish(BreakevenMovedEvent(
+                    symbol=info["symbol"],
+                    direction=info["direction"],
+                    position_id=position_id,
+                    entry_price=info["entry_price"],
+                    new_sl=new_sl,
+                    current_price=current_price,
+                ))
+            elif move_type == "trailing":
+                self._bus.publish(TrailingUpdatedEvent(
+                    symbol=info["symbol"],
+                    direction=info["direction"],
+                    position_id=position_id,
+                    old_sl=old_sl,
+                    new_sl=new_sl,
+                    current_price=current_price,
+                ))
+        except Exception:
+            logger.exception(
+                "TradeMonitor: failed to publish SL-move event for position %d", position_id
+            )
+
+    def _modify_sl(
+        self,
+        position_id: int,
+        trade_info: Dict,
+        new_sl: float,
+        current_price: float,
+    ) -> bool:
+        """
+        Call modify_position to update the SL; TP is left unchanged.
+
+        Returns True on success.
+        """
+        try:
+            result = self._client.order.modify_position(
+                position_id,
+                stop_loss=round(new_sl, 5),
+                take_profit=trade_info["take_profit"],
+            )
+            if result and not result.get("error"):
+                logger.info(
+                    "TradeMonitor: SL moved to %.5f for position %d "
+                    "(price=%.5f symbol=%s)",
+                    new_sl, position_id, current_price, trade_info["symbol"],
+                )
+                return True
+            msg = result.get("message", "unknown") if result else "None response"
+            logger.warning(
+                "TradeMonitor: failed to modify SL for position %d — %s",
+                position_id, msg,
+            )
+            return False
+        except Exception:
+            logger.exception(
+                "TradeMonitor: exception modifying SL for position %d", position_id
+            )
+            return False
 
     def _get_close_deal(self, position_id: int) -> tuple:
         """

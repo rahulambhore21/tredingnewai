@@ -143,6 +143,36 @@ class Database:
                 created_at  TEXT    NOT NULL
             )
             """,
+
+            # Denormalized trade lifecycle — one row per signal, updated as the
+            # trade progresses.  Used for strategy validation and analytics without
+            # requiring multi-table JOINs.
+            """
+            CREATE TABLE IF NOT EXISTS validation_log (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol        TEXT    NOT NULL,
+                timeframe     TEXT,
+                zone_id       INTEGER,
+                zone_type     TEXT,
+                zone_strength INTEGER,
+                ai_decision   TEXT,
+                confidence    REAL,
+                entry         REAL,
+                stop_loss     REAL,
+                take_profit   REAL,
+                risk_approved INTEGER,          -- 1=approved, 0=rejected, NULL=pending
+                risk_reason   TEXT,
+                order_id      INTEGER,
+                fill_price    REAL,
+                close_price   REAL,
+                realized_pnl  REAL,
+                trade_result  TEXT,             -- WIN / LOSS / BREAKEVEN / REJECTED / OPEN
+                duration_sec  INTEGER,
+                signal_id     INTEGER,
+                created_at    TEXT    NOT NULL,
+                closed_at     TEXT
+            )
+            """,
         ]
 
         with self._write_lock:
@@ -359,6 +389,89 @@ class Database:
         )
 
     # ------------------------------------------------------------------
+    # validation_log write helpers (called ONLY by db_consumer)
+    # ------------------------------------------------------------------
+
+    def insert_validation_log(
+        self,
+        symbol: str,
+        timeframe: Optional[str],
+        zone_id: Optional[int],
+        zone_type: Optional[str],
+        zone_strength: Optional[int],
+        ai_decision: Optional[str],
+        confidence: Optional[float],
+        entry: Optional[float],
+        stop_loss: Optional[float],
+        take_profit: Optional[float],
+        signal_id: Optional[int] = None,
+    ) -> int:
+        """Open a new validation_log row at signal-generation time. Returns the new id."""
+        return self._execute_write(
+            """
+            INSERT INTO validation_log
+                (symbol, timeframe, zone_id, zone_type, zone_strength,
+                 ai_decision, confidence, entry, stop_loss, take_profit,
+                 trade_result, signal_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
+            """,
+            (symbol, timeframe, zone_id, zone_type, zone_strength,
+             ai_decision, confidence, entry, stop_loss, take_profit,
+             signal_id, self._now_iso()),
+        )
+
+    def update_validation_log_risk(
+        self,
+        val_id: int,
+        risk_approved: bool,
+        risk_reason: str,
+    ) -> None:
+        """Set risk decision on an existing validation_log row."""
+        result = "OPEN" if risk_approved else "REJECTED"
+        self._execute_write(
+            """
+            UPDATE validation_log
+            SET risk_approved=?, risk_reason=?, trade_result=?
+            WHERE id=?
+            """,
+            (int(risk_approved), risk_reason, result, val_id),
+        )
+
+    def update_validation_log_trade(
+        self,
+        val_id: int,
+        order_id: int,
+        fill_price: Optional[float],
+    ) -> None:
+        """Record the actual execution details once the order is filled."""
+        self._execute_write(
+            "UPDATE validation_log SET order_id=?, fill_price=? WHERE id=?",
+            (order_id, fill_price, val_id),
+        )
+
+    def update_validation_log_close(
+        self,
+        val_id: int,
+        close_price: Optional[float],
+        realized_pnl: Optional[float],
+        trade_result: str,
+        closed_at: str,
+    ) -> None:
+        """Finalise the validation_log row when the position closes."""
+        self._execute_write(
+            """
+            UPDATE validation_log
+            SET close_price=?, realized_pnl=?, trade_result=?,
+                closed_at=?,
+                duration_sec=CAST(
+                    (JULIANDAY(?) - JULIANDAY(created_at)) * 86400 AS INTEGER
+                )
+            WHERE id=?
+            """,
+            (close_price, realized_pnl, trade_result, closed_at, closed_at, val_id),
+        )
+
+    # ------------------------------------------------------------------
     # Read helpers (used by agents for risk checks, zone lookups, etc.)
     # ------------------------------------------------------------------
 
@@ -448,6 +561,63 @@ class Database:
             )
             row = cur.fetchone()
         return float(row[0]) if row and row[0] is not None else 0.0
+
+    # ------------------------------------------------------------------
+    # Analytics read helpers (used by core/analytics.py)
+    # ------------------------------------------------------------------
+
+    def get_closed_trades_for_analytics(self) -> List[Dict]:
+        """
+        Return all closed, non-dry-run validation_log rows as dicts.
+        Includes every field needed for the analytics engine.
+        """
+        with self._write_lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                SELECT *
+                FROM validation_log
+                WHERE trade_result IN ('WIN', 'LOSS', 'BREAKEVEN')
+                  AND realized_pnl IS NOT NULL
+                ORDER BY created_at ASC
+                """
+            )
+            rows = cur.fetchall()
+        return [dict(r) for r in rows]
+
+    def get_all_signals_for_analytics(self) -> List[Dict]:
+        """Return all validation_log rows (all outcomes, including REJECTED/OPEN)."""
+        with self._write_lock:
+            cur = self._conn.cursor()
+            cur.execute("SELECT * FROM validation_log ORDER BY created_at ASC")
+            rows = cur.fetchall()
+        return [dict(r) for r in rows]
+
+    def get_event_counts(self) -> Dict[str, int]:
+        """Return a count of each event_type in the audit log."""
+        with self._write_lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "SELECT event_type, COUNT(*) AS cnt FROM events GROUP BY event_type ORDER BY cnt DESC"
+            )
+            rows = cur.fetchall()
+        return {r["event_type"]: r["cnt"] for r in rows}
+
+    def get_zone_touch_to_signal_rate(self) -> Dict[str, Any]:
+        """
+        Compare zone touches vs analysis-started vs signals generated.
+        Tells you how many touches resulted in actual analysis and signals.
+        """
+        with self._write_lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "SELECT event_type, COUNT(*) AS cnt FROM events "
+                "WHERE event_type IN "
+                "('zone_touch_event','analysis_started_event','signal_generated_event') "
+                "GROUP BY event_type"
+            )
+            rows = cur.fetchall()
+        return {r["event_type"]: r["cnt"] for r in rows}
 
     def close(self) -> None:
         """Close the underlying SQLite connection cleanly."""

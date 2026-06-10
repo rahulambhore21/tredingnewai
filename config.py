@@ -109,6 +109,22 @@ LOT_MAX = 0.10
 MIN_CONFIDENCE = 65
 
 # ---------------------------------------------------------------------------
+# Trailing / breakeven stop parameters
+# ---------------------------------------------------------------------------
+
+# Fraction of TP distance at which SL is moved to entry (breakeven).
+# e.g. 0.6 means "when price is 60% of the way from entry to TP, protect capital"
+BREAKEVEN_TRIGGER_PCT: float = 0.6
+
+# Fraction of TP distance at which the SL starts trailing the price.
+# Must be >= BREAKEVEN_TRIGGER_PCT.
+TRAIL_TRIGGER_PCT: float = 0.8
+
+# Trail distance expressed as a fraction of the original risk (entry-to-SL distance).
+# e.g. 0.5 means the trail buffer = half the original stop distance
+TRAIL_DISTANCE_RATIO: float = 0.5
+
+# ---------------------------------------------------------------------------
 # Signal tracker — rolling performance gate
 # ---------------------------------------------------------------------------
 
@@ -165,8 +181,9 @@ MT5_CONFIG = {
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-4o")
 
-# Maximum tokens for the GPT-4o response (JSON signal is small)
-OPENAI_MAX_TOKENS = 512
+# Maximum tokens for the GPT-4o response (7-field JSON + brief reasoning).
+# 300 was too tight and caused JSON truncation on verbose reasoning — raised to 600.
+OPENAI_MAX_TOKENS = 600
 
 # ---------------------------------------------------------------------------
 # Execution flag

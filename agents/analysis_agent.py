@@ -26,7 +26,7 @@ from metatrader_client import MT5Client
 
 import config
 from core.event_bus import EventBus
-from core.events import SignalGeneratedEvent, ZoneTouchEvent
+from core.events import AnalysisStartedEvent, SignalGeneratedEvent, ZoneTouchEvent
 from core.signal_tracker import SignalTracker
 from indicators.calculator import compute_all_indicators, sort_candles_ascending
 from prompts.user_template import build_user_prompt
@@ -243,10 +243,44 @@ class AnalysisAgent:
         """
         symbol_base = event.symbol
         symbol = config.resolve_symbol(symbol_base)
+        analysis_tf = event.timeframe or config.ANALYSIS_TF
+
+        # Emit audit event so db_consumer can record that analysis was attempted
+        self._bus.publish(AnalysisStartedEvent(
+            symbol=symbol_base,
+            zone_id=event.zone_id,
+            zone_type=event.zone_type,
+            zone_center=event.price_center,
+            timeframe=analysis_tf,
+        ))
+
+        # 0. Skip immediately if this symbol already has an open position — RiskAgent
+        #    would reject it anyway, so no point paying for a GPT call.
+        try:
+            positions_df = self._client.order.get_all_positions()
+            if positions_df is not None and len(positions_df) > 0:
+                open_bases: set = set()
+                for col in ("symbol", "Symbol"):
+                    if col in positions_df.columns:
+                        open_bases = {
+                            s.replace(config.SYMBOL_SUFFIX, "").upper()
+                            for s in positions_df[col].tolist()
+                        }
+                        break
+                if symbol_base.upper() in open_bases:
+                    logger.info(
+                        "AnalysisAgent: skipping GPT analysis for %s — symbol already has an open position",
+                        symbol_base,
+                    )
+                    self._last_analysis.pop(cooldown_key, None)
+                    return
+        except Exception:
+            logger.warning(
+                "AnalysisAgent: could not check open positions for %s — proceeding with analysis",
+                symbol_base,
+            )
 
         # 1. Fetch candles on the timeframe whose zone was actually touched
-        #    (falls back to config.ANALYSIS_TF if the event predates this field)
-        analysis_tf = event.timeframe or config.ANALYSIS_TF
         df = self._client.market.get_candles_latest(
             symbol, analysis_tf, count=config.ANALYSIS_CANDLE_COUNT
         )
@@ -297,7 +331,33 @@ class AnalysisAgent:
             for _, row in asc_df.tail(5).iterrows()
         ]
 
-        # 4. Build prompts
+        # 4. Pre-flight indicator sanity check (saves API call on clearly bad setups)
+        skip_reason = self._preflight_indicator_check(
+            zone_type=event.zone_type,
+            indicators=indicators,
+            symbol=symbol_base,
+            zone_id=event.zone_id,
+        )
+        if skip_reason:
+            logger.info(
+                "AnalysisAgent: skipping GPT call for %s zone_id=%s — %s",
+                symbol_base, event.zone_id, skip_reason,
+            )
+            self._last_analysis.pop(cooldown_key, None)
+            return
+
+        # 5. Check rolling win-rate gate before spending an API call
+        if self._tracker.should_pause:
+            logger.warning(
+                "AnalysisAgent: GPT call skipped for %s — win rate %.0f%% is below"
+                " pause threshold %.0f%%",
+                symbol_base,
+                self._tracker.win_rate * 100,
+                config.SIGNAL_PAUSE_THRESHOLD * 100,
+            )
+            return
+
+        # 6. Build prompts
         zone_dict = {
             "zone_type":    event.zone_type,
             "price_center": event.price_center,
@@ -316,14 +376,14 @@ class AnalysisAgent:
             h4_candles=h4_candles,
         )
 
-        # 5. Call GPT-4o
+        # 7. Call GPT-4o
         gpt_response = self._call_gpt(user_prompt, symbol=symbol_base, zone_id=event.zone_id)
         if gpt_response is None:
             # API error — reset cooldown so the next touch can retry immediately
             self._last_analysis.pop(cooldown_key, None)
             return
 
-        # 6a. Log HTF alignment warning (does not block the signal)
+        # 7a. Log HTF alignment warning (does not block the signal)
         htf_alignment = gpt_response.get("htf_alignment")
         if htf_alignment is False:
             logger.warning(
@@ -334,7 +394,7 @@ class AnalysisAgent:
                 event.zone_id,
             )
 
-        # 6. Validate confidence threshold
+        # 8. Validate confidence threshold
         confidence = float(gpt_response.get("confidence", 0))
         if confidence < config.MIN_CONFIDENCE:
             logger.info(
@@ -360,14 +420,21 @@ class AnalysisAgent:
             logger.warning("AnalysisAgent: invalid price levels from GPT-4o — discarding")
             return
 
-        # 7. Check rolling win-rate gate before publishing
-        if self._tracker.should_pause:
+        # Geometry gate: reject signals where SL/TP ordering is logically impossible.
+        # BUY requires  SL < Entry < TP  (price rises to TP, falls to SL).
+        # SELL requires TP < Entry < SL  (price falls to TP, rises to SL).
+        if direction == "BUY" and not (stop_loss < entry < take_profit):
             logger.warning(
-                "AnalysisAgent: signal for %s discarded — win rate %.0f%% is below"
-                " pause threshold %.0f%%",
-                symbol_base,
-                self._tracker.win_rate * 100,
-                config.SIGNAL_PAUSE_THRESHOLD * 100,
+                "AnalysisAgent: invalid BUY geometry SL=%.5f entry=%.5f TP=%.5f "
+                "(required SL < entry < TP) — discarding",
+                stop_loss, entry, take_profit,
+            )
+            return
+        if direction == "SELL" and not (take_profit < entry < stop_loss):
+            logger.warning(
+                "AnalysisAgent: invalid SELL geometry TP=%.5f entry=%.5f SL=%.5f "
+                "(required TP < entry < SL) — discarding",
+                take_profit, entry, stop_loss,
             )
             return
 
@@ -383,6 +450,8 @@ class AnalysisAgent:
             zone_type=event.zone_type,
             zone_center=event.price_center,
             zone_id=event.zone_id,
+            zone_strength=event.zone_strength,
+            timeframe=analysis_tf,
             ema21=indicators.get("ema21"),
             ema50=indicators.get("ema50"),
             rsi14=indicators.get("rsi14"),
@@ -401,6 +470,55 @@ class AnalysisAgent:
             take_profit,
             confidence,
         )
+
+    # ------------------------------------------------------------------
+    # Pre-flight indicator filter
+    # ------------------------------------------------------------------
+
+    def _preflight_indicator_check(
+        self,
+        zone_type: str,
+        indicators: dict,
+        symbol: str = "",
+        zone_id=None,
+    ) -> str:
+        """
+        Return a non-empty skip reason string if the indicator context strongly
+        contradicts the zone type, so the caller can avoid a needless GPT call.
+        Returns empty string when the setup is worth sending to GPT.
+
+        Rules (all three conditions must be met to skip):
+          Support zone  → GPT would suggest BUY:
+            skip when ema21 < ema50  AND  rsi > 65  AND  macd_hist < 0
+            (downtrend, not oversold, bearish momentum — bounce unlikely)
+          Resistance zone → GPT would suggest SELL:
+            skip when ema21 > ema50  AND  rsi < 35  AND  macd_hist > 0
+            (uptrend, not overbought, bullish momentum — rejection unlikely)
+        """
+        ema21      = indicators.get("ema21")
+        ema50      = indicators.get("ema50")
+        rsi14      = indicators.get("rsi14")
+        macd_hist  = indicators.get("macd_hist")
+
+        if None in (ema21, ema50, rsi14, macd_hist):
+            return ""  # missing indicators — let GPT decide
+
+        ztype = (zone_type or "").lower()
+        if ztype == "support":
+            if ema21 < ema50 and rsi14 > 65 and macd_hist < 0:
+                return (
+                    f"indicators contradict support bounce "
+                    f"(ema21={ema21:.5f} < ema50={ema50:.5f}, "
+                    f"rsi={rsi14:.1f}>65, macd_hist={macd_hist:.6f}<0)"
+                )
+        elif ztype == "resistance":
+            if ema21 > ema50 and rsi14 < 35 and macd_hist > 0:
+                return (
+                    f"indicators contradict resistance rejection "
+                    f"(ema21={ema21:.5f} > ema50={ema50:.5f}, "
+                    f"rsi={rsi14:.1f}<35, macd_hist={macd_hist:.6f}>0)"
+                )
+        return ""
 
     # ------------------------------------------------------------------
     # GPT-4o call
