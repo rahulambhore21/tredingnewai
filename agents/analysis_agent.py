@@ -1,15 +1,17 @@
 """
-agents/analysis_agent.py — GPT-4o signal generation agent (per-symbol instance).
+agents/analysis_agent.py — GPT-4o signal generation agent.
 
-Subscribes to ZoneTouchEvent and filters to the assigned symbol only.
+Subscribes to ZoneTouchEvent for all symbols.
 Processes events on its own dedicated thread so GPT API calls (2–10 s each)
-never block the PriceWatcher tick loop, and symbols never block each other.
+never block the PriceWatcher tick loop.
 
-Queue-based design: _on_zone_touch() enqueues and returns immediately;
-_run_loop() on the agent's own thread drains the queue and does all heavy work
-(candle fetch, indicator calc, GPT call, bus publish).
-
-Per-zone_id cooldown prevents the same zone being re-analysed too quickly.
+For each ZoneTouchEvent:
+  1. Fetches 100 candles on both M5 and M15 for event.symbol
+  2. Computes EMA 20/50, RSI 14, MACD on both timeframes
+  3. Passes M15 data (trend) + M5 data (entry confirmation) to GPT-4o
+  4. GPT-4o returns: direction (BUY/SELL/NONE), sl, tp, confidence (0-10), reason
+  5. If direction is NONE, signal is silently dropped
+  6. Otherwise emits SignalGeneratedEvent
 """
 
 import collections
@@ -26,8 +28,7 @@ from metatrader_client import MT5Client
 
 import config
 from core.event_bus import EventBus
-from core.events import AnalysisStartedEvent, SignalGeneratedEvent, ZoneTouchEvent
-from core.signal_tracker import SignalTracker
+from core.events import SignalGeneratedEvent, ZoneTouchEvent
 from indicators.calculator import compute_all_indicators, sort_candles_ascending
 from prompts.user_template import build_user_prompt
 
@@ -50,111 +51,79 @@ _SYSTEM_PROMPT: str = _load_system_prompt()
 
 class AnalysisAgent:
     """
-    GPT-4o powered trading signal generator for a single symbol.
+    GPT-4o powered trading signal generator.
 
-    ZoneTouchEvents for the assigned symbol are put on an internal queue by the
-    event handler (which runs on PriceWatcher's thread) and processed by this
-    agent's own dedicated thread — GPT calls never block the tick loop, and
-    different symbols never block each other.
-
-    Injected dependencies:
-        client:        Shared MT5Client for fetching candles.
-        bus:           Shared EventBus (subscribe + publish).
-        symbol:        Base symbol this instance handles (e.g. "EURUSD").
-        openai_client: Optional pre-built OpenAI client (useful for testing).
+    ZoneTouchEvents (for any symbol) are put on an internal queue by the
+    event handler and processed by this agent's own dedicated thread.
+    GPT calls never block the tick loop.
     """
 
     def __init__(
         self,
         client: MT5Client,
         bus: EventBus,
-        symbol: str,
         openai_client: Optional[OpenAI] = None,
-        signal_tracker: Optional["SignalTracker"] = None,
     ) -> None:
-        self._client  = client
-        self._bus     = bus
-        self._symbol  = symbol
-        self._oai     = openai_client or OpenAI(api_key=config.OPENAI_API_KEY)
-        self._tracker = signal_tracker or SignalTracker()
+        self._client = client
+        self._bus    = bus
+        self._oai    = openai_client or OpenAI(api_key=config.OPENAI_API_KEY)
 
-        # Per-zone_id cooldown — different zones on the same instrument don't suppress each other.
         self._last_analysis: Dict[Tuple[str, int], float] = {}
         self._analysis_cooldown_sec = 30.0
 
-        # Bounded deque (maxsize=10) with per-zone deduplication.
-        # Protected by _q_cond; _q_pending_zones tracks which zone_id keys are
-        # currently waiting so duplicates can be detected in O(1).
         self._Q_MAXSIZE = 10
         self._q_cond = threading.Condition()
         self._q_deque: "collections.deque[ZoneTouchEvent]" = collections.deque()
-        self._q_pending_zones: set = set()  # set of (symbol, zone_id or 0) keys
+        self._q_pending_zones: set = set()
 
         self._stop_event = threading.Event()
         self._thread = threading.Thread(
             target=self._run_loop,
-            name=f"AnalysisAgent-{symbol}",
+            name="AnalysisAgent",
             daemon=True,
         )
         self.last_heartbeat: float = time.time()
 
         self._bus.subscribe(ZoneTouchEvent, self._on_zone_touch)
-        logger.info("AnalysisAgent[%s] initialised and subscribed to ZoneTouchEvent.", symbol)
+        logger.info("AnalysisAgent initialised and subscribed to ZoneTouchEvent.")
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
     def start(self) -> None:
-        """Start the agent's processing thread."""
-        logger.info("AnalysisAgent[%s] starting …", self._symbol)
+        logger.info("AnalysisAgent starting …")
         self._thread.start()
 
     def stop(self) -> None:
-        """Signal the agent to stop and wait for the thread to exit."""
-        logger.info("AnalysisAgent[%s] stopping …", self._symbol)
+        logger.info("AnalysisAgent stopping …")
         self._stop_event.set()
         with self._q_cond:
-            self._q_cond.notify()   # wake _run_loop if it is waiting
+            self._q_cond.notify()
         self._thread.join(timeout=30)
 
     def restart(self) -> None:
-        """Restart a dead thread (called by the main watchdog)."""
         if self._thread.is_alive():
             return
         self._stop_event.clear()
         self._thread = threading.Thread(
-            target=self._run_loop, name=f"AnalysisAgent-{self._symbol}", daemon=True
+            target=self._run_loop, name="AnalysisAgent", daemon=True
         )
         self._thread.start()
-        logger.warning("AnalysisAgent[%s] thread restarted by watchdog.", self._symbol)
+        logger.warning("AnalysisAgent thread restarted by watchdog.")
 
     # ------------------------------------------------------------------
     # Event handler — runs on PriceWatcher's thread; must be fast
     # ------------------------------------------------------------------
 
     def _on_zone_touch(self, event: ZoneTouchEvent) -> None:
-        """
-        Enqueue the event and return immediately (called on PriceWatcher's thread).
-        Events for other symbols are dropped immediately — each AnalysisAgent
-        instance only processes its own symbol.
-
-        Deduplication rules (evaluated under the queue lock):
-        1. Same (symbol, zone_id) already pending → drop silently at DEBUG.
-        2. Queue full, different zone → drop the oldest item (WARNING) then enqueue.
-        3. Queue not full → enqueue normally.
-        """
-        if event.symbol != self._symbol:
-            return
-
+        """Enqueue the event and return immediately."""
         zone_key = (event.symbol, event.zone_id or 0)
         with self._q_cond:
             if zone_key in self._q_pending_zones:
                 logger.debug(
-                    "AnalysisAgent: duplicate ZoneTouchEvent for %s zone_id=%s"
-                    " already queued — dropping",
-                    event.symbol,
-                    event.zone_id,
+                    "AnalysisAgent: duplicate ZoneTouchEvent for %s zone_id=%s already queued — dropping",
+                    event.symbol, event.zone_id,
                 )
                 return
 
@@ -162,12 +131,8 @@ class AnalysisAgent:
                 dropped = self._q_deque.popleft()
                 self._q_pending_zones.discard((dropped.symbol, dropped.zone_id or 0))
                 logger.warning(
-                    "AnalysisAgent queue full — dropping oldest ZoneTouchEvent"
-                    " for %s zone_id=%s to make room for %s zone_id=%s",
-                    dropped.symbol,
-                    dropped.zone_id,
-                    event.symbol,
-                    event.zone_id,
+                    "AnalysisAgent queue full — dropping oldest event for %s to make room for %s",
+                    dropped.symbol, event.symbol,
                 )
 
             self._q_deque.append(event)
@@ -175,7 +140,7 @@ class AnalysisAgent:
             self._q_cond.notify()
 
     # ------------------------------------------------------------------
-    # Processing loop — runs on AnalysisAgent's own thread
+    # Processing loop
     # ------------------------------------------------------------------
 
     def _run_loop(self) -> None:
@@ -186,7 +151,7 @@ class AnalysisAgent:
             with self._q_cond:
                 while not self._q_deque and not self._stop_event.is_set():
                     self._q_cond.wait(timeout=1.0)
-                    self.last_heartbeat = time.time()  # stay alive while idle
+                    self.last_heartbeat = time.time()
                 if self._q_deque:
                     event = self._q_deque.popleft()
                     self._q_pending_zones.discard((event.symbol, event.zone_id or 0))
@@ -203,18 +168,13 @@ class AnalysisAgent:
         logger.info("AnalysisAgent processing loop stopped.")
 
     def _handle_zone_touch(self, event: ZoneTouchEvent) -> None:
-        """
-        Apply per-(symbol, zone_id) cooldown then dispatch to _process_zone_touch.
-        Runs on AnalysisAgent's own thread — no lock needed for _last_analysis.
-        """
         now = time.time()
         cooldown_key: Tuple[str, int] = (event.symbol, event.zone_id or 0)
         last = self._last_analysis.get(cooldown_key, 0.0)
         if (now - last) < self._analysis_cooldown_sec:
             logger.debug(
                 "AnalysisAgent: %s zone_id=%s in cooldown (%.0fs remaining), skipping",
-                event.symbol,
-                event.zone_id,
+                event.symbol, event.zone_id,
                 self._analysis_cooldown_sec - (now - last),
             )
             return
@@ -222,9 +182,7 @@ class AnalysisAgent:
         self._last_analysis[cooldown_key] = now
         logger.info(
             "AnalysisAgent handling ZoneTouchEvent: %s %s center=%.5f",
-            event.symbol,
-            event.zone_type,
-            event.price_center,
+            event.symbol, event.zone_type, event.price_center,
         )
         self._process_zone_touch(event, cooldown_key)
 
@@ -237,128 +195,75 @@ class AnalysisAgent:
         event: ZoneTouchEvent,
         cooldown_key: Tuple[str, int],
     ) -> None:
-        """
-        Fetch candles, compute indicators, call GPT-4o, validate, publish signal.
-        On GPT API failure the cooldown is cleared so the next zone touch retries.
-        """
         symbol_base = event.symbol
         symbol = config.resolve_symbol(symbol_base)
-        analysis_tf = event.timeframe or config.ANALYSIS_TF
 
-        # Emit audit event so db_consumer can record that analysis was attempted
-        self._bus.publish(AnalysisStartedEvent(
-            symbol=symbol_base,
-            zone_id=event.zone_id,
-            zone_type=event.zone_type,
-            zone_center=event.price_center,
-            timeframe=analysis_tf,
-        ))
-
-        # 0. Skip immediately if this symbol already has an open position — RiskAgent
-        #    would reject it anyway, so no point paying for a GPT call.
-        try:
-            positions_df = self._client.order.get_all_positions()
-            if positions_df is not None and len(positions_df) > 0:
-                open_bases: set = set()
-                for col in ("symbol", "Symbol"):
-                    if col in positions_df.columns:
-                        open_bases = {
-                            s.replace(config.SYMBOL_SUFFIX, "").upper()
-                            for s in positions_df[col].tolist()
-                        }
-                        break
-                if symbol_base.upper() in open_bases:
-                    logger.info(
-                        "AnalysisAgent: skipping GPT analysis for %s — symbol already has an open position",
-                        symbol_base,
-                    )
-                    self._last_analysis.pop(cooldown_key, None)
-                    return
-        except Exception:
-            logger.warning(
-                "AnalysisAgent: could not check open positions for %s — proceeding with analysis",
-                symbol_base,
-            )
-
-        # 1. Fetch candles on the timeframe whose zone was actually touched
-        df = self._client.market.get_candles_latest(
-            symbol, analysis_tf, count=config.ANALYSIS_CANDLE_COUNT
+        # 1. Fetch M5 candles
+        m5_df = self._client.market.get_candles_latest(
+            symbol, "M5", count=config.ANALYSIS_CANDLE_COUNT
         )
-        if df is None or len(df) < 30:
+        if m5_df is None or len(m5_df) < 30:
             logger.warning(
-                "AnalysisAgent: insufficient candle data for %s (%d rows)",
-                symbol,
-                0 if df is None else len(df),
+                "AnalysisAgent: insufficient M5 candle data for %s (%d rows)",
+                symbol, 0 if m5_df is None else len(m5_df),
             )
             return
 
-        # 1b. Fetch H4 candles for higher-timeframe context (50 candles)
-        h4_df = self._client.market.get_candles_latest(symbol, "H4", count=50)
-        h4_candles: List[Dict] = []
-        if h4_df is not None and len(h4_df) >= 1:
-            h4_asc = sort_candles_ascending(h4_df)
-            h4_candles = [
+        # 2. Fetch M15 candles
+        m15_df = self._client.market.get_candles_latest(
+            symbol, "M15", count=config.ANALYSIS_CANDLE_COUNT
+        )
+        if m15_df is None or len(m15_df) < 30:
+            logger.warning(
+                "AnalysisAgent: insufficient M15 candle data for %s (%d rows)",
+                symbol, 0 if m15_df is None else len(m15_df),
+            )
+            return
+
+        # 3. Compute indicators on both timeframes
+        m5_indicators  = compute_all_indicators(m5_df)
+        m15_indicators = compute_all_indicators(m15_df)
+
+        # 4. Build recent candles lists (5 most-recent bars each)
+        m5_asc  = sort_candles_ascending(m5_df)
+        m15_asc = sort_candles_ascending(m15_df)
+
+        def _candle_rows(asc_df) -> List[Dict]:
+            return [
                 {
-                    "time":   str(row.get("time", "")),
-                    "open":   float(row.get("open",   0.0)),
-                    "high":   float(row.get("high",   0.0)),
-                    "low":    float(row.get("low",    0.0)),
-                    "close":  float(row.get("close",  0.0)),
-                    "volume": float(row.get("volume", 0.0)),
+                    "time":  str(row.get("time", "")),
+                    "open":  float(row.get("open",  0.0)),
+                    "high":  float(row.get("high",  0.0)),
+                    "low":   float(row.get("low",   0.0)),
+                    "close": float(row.get("close", 0.0)),
                 }
-                for _, row in h4_asc.tail(10).iterrows()
+                for _, row in asc_df.tail(5).iterrows()
             ]
-        else:
-            logger.warning(
-                "AnalysisAgent: could not fetch H4 candles for %s — HTF section will be empty",
-                symbol,
-            )
 
-        # 2. Compute indicators
-        indicators = compute_all_indicators(df)
-        logger.debug("AnalysisAgent indicators for %s: %s", symbol_base, indicators)
+        m5_candles  = _candle_rows(m5_asc)
+        m15_candles = _candle_rows(m15_asc)
 
-        # 3. Build recent candles list for the prompt (5 most-recent bars)
-        asc_df = sort_candles_ascending(df)
-        recent_candles: List[Dict] = [
-            {
-                "time":  str(row.get("time", "")),
-                "open":  float(row.get("open",  0.0)),
-                "high":  float(row.get("high",  0.0)),
-                "low":   float(row.get("low",   0.0)),
-                "close": float(row.get("close", 0.0)),
-            }
-            for _, row in asc_df.tail(5).iterrows()
-        ]
+        # 5a. Pre-filter: skip GPT if M15 trend contradicts zone type (saves tokens)
+        m15_ema21 = m15_indicators.get("ema21", 0.0)
+        m15_ema50 = m15_indicators.get("ema50", 0.0)
+        if m15_ema21 and m15_ema50:
+            m15_bullish = m15_ema21 > m15_ema50
+            zone_type_lower = event.zone_type.lower()
+            if zone_type_lower == "support" and not m15_bullish:
+                logger.info(
+                    "AnalysisAgent: M15 bearish at support for %s — skipping GPT call",
+                    symbol_base,
+                )
+                return
+            if zone_type_lower == "resistance" and m15_bullish:
+                logger.info(
+                    "AnalysisAgent: M15 bullish at resistance for %s — skipping GPT call",
+                    symbol_base,
+                )
+                return
 
-        # 4. Pre-flight indicator sanity check (saves API call on clearly bad setups)
-        skip_reason = self._preflight_indicator_check(
-            zone_type=event.zone_type,
-            indicators=indicators,
-            symbol=symbol_base,
-            zone_id=event.zone_id,
-        )
-        if skip_reason:
-            logger.info(
-                "AnalysisAgent: skipping GPT call for %s zone_id=%s — %s",
-                symbol_base, event.zone_id, skip_reason,
-            )
-            self._last_analysis.pop(cooldown_key, None)
-            return
-
-        # 5. Check rolling win-rate gate before spending an API call
-        if self._tracker.should_pause:
-            logger.warning(
-                "AnalysisAgent: GPT call skipped for %s — win rate %.0f%% is below"
-                " pause threshold %.0f%%",
-                symbol_base,
-                self._tracker.win_rate * 100,
-                config.SIGNAL_PAUSE_THRESHOLD * 100,
-            )
-            return
-
-        # 6. Build prompts
-        zone_dict = {
+        # 5b. Build prompts
+        zone_dict  = {
             "zone_type":    event.zone_type,
             "price_center": event.price_center,
             "price_upper":  event.price_upper,
@@ -369,156 +274,83 @@ class AnalysisAgent:
         user_prompt = build_user_prompt(
             symbol=symbol_base,
             zone=zone_dict,
-            indicators=indicators,
-            recent_candles=recent_candles,
+            m5_indicators=m5_indicators,
+            m5_candles=m5_candles,
+            m15_indicators=m15_indicators,
+            m15_candles=m15_candles,
             price=price_dict,
-            analysis_tf=analysis_tf,
-            h4_candles=h4_candles,
         )
 
-        # 7. Call GPT-4o
+        # 6. Call GPT-4o
         gpt_response = self._call_gpt(user_prompt, symbol=symbol_base, zone_id=event.zone_id)
         if gpt_response is None:
-            # API error — reset cooldown so the next touch can retry immediately
-            self._last_analysis.pop(cooldown_key, None)
             return
 
-        # 7a. Log HTF alignment warning (does not block the signal)
-        htf_alignment = gpt_response.get("htf_alignment")
-        if htf_alignment is False:
-            logger.warning(
-                "AnalysisAgent: H4 trend does NOT align with proposed %s signal for %s"
-                " zone_id=%s — proceeding anyway (htf_alignment=false)",
-                gpt_response.get("direction", "?"),
-                symbol_base,
-                event.zone_id,
-            )
+        # 7. Parse response
+        direction = str(gpt_response.get("direction", "")).upper()
 
-        # 8. Validate confidence threshold
-        confidence = float(gpt_response.get("confidence", 0))
-        if confidence < config.MIN_CONFIDENCE:
+        if direction == "NONE":
             logger.info(
-                "AnalysisAgent: signal for %s dropped — confidence %.1f < %.1f",
-                symbol_base,
-                confidence,
-                config.MIN_CONFIDENCE,
+                "AnalysisAgent: GPT returned NONE for %s zone_id=%s — dropping signal",
+                symbol_base, event.zone_id,
             )
             return
-
-        direction   = str(gpt_response.get("direction",   "")).upper()
-        entry       = float(gpt_response.get("entry",      0.0))
-        stop_loss   = float(gpt_response.get("stop_loss",  0.0))
-        take_profit = float(gpt_response.get("take_profit",0.0))
-        reasoning   = str(gpt_response.get("reasoning",   ""))
 
         if direction not in ("BUY", "SELL"):
             logger.warning(
                 "AnalysisAgent: invalid direction '%s' from GPT-4o — discarding", direction
             )
             return
-        if entry <= 0 or stop_loss <= 0 or take_profit <= 0:
+
+        sl          = float(gpt_response.get("sl",  0.0))
+        tp          = float(gpt_response.get("tp",  0.0))
+        confidence  = float(gpt_response.get("confidence", 0))
+        reason      = str(gpt_response.get("reason", ""))
+        entry       = event.mid_price   # use current market price as entry
+
+        if sl <= 0 or tp <= 0:
             logger.warning("AnalysisAgent: invalid price levels from GPT-4o — discarding")
             return
 
-        # Geometry gate: reject signals where SL/TP ordering is logically impossible.
-        # BUY requires  SL < Entry < TP  (price rises to TP, falls to SL).
-        # SELL requires TP < Entry < SL  (price falls to TP, rises to SL).
-        if direction == "BUY" and not (stop_loss < entry < take_profit):
+        if direction == "BUY" and not (sl < entry < tp):
             logger.warning(
-                "AnalysisAgent: invalid BUY geometry SL=%.5f entry=%.5f TP=%.5f "
-                "(required SL < entry < TP) — discarding",
-                stop_loss, entry, take_profit,
+                "AnalysisAgent: invalid BUY geometry SL=%.5f entry=%.5f TP=%.5f — discarding",
+                sl, entry, tp,
             )
             return
-        if direction == "SELL" and not (take_profit < entry < stop_loss):
+        if direction == "SELL" and not (tp < entry < sl):
             logger.warning(
-                "AnalysisAgent: invalid SELL geometry TP=%.5f entry=%.5f SL=%.5f "
-                "(required TP < entry < SL) — discarding",
-                take_profit, entry, stop_loss,
+                "AnalysisAgent: invalid SELL geometry TP=%.5f entry=%.5f SL=%.5f — discarding",
+                tp, entry, sl,
             )
             return
 
-        # 8. Publish signal
         signal = SignalGeneratedEvent(
             symbol=symbol_base,
             direction=direction,
             entry=entry,
-            stop_loss=stop_loss,
-            take_profit=take_profit,
+            stop_loss=sl,
+            take_profit=tp,
             confidence=confidence,
-            reasoning=reasoning,
+            reasoning=reason,
             zone_type=event.zone_type,
             zone_center=event.price_center,
             zone_id=event.zone_id,
             zone_strength=event.zone_strength,
-            timeframe=analysis_tf,
-            ema21=indicators.get("ema21"),
-            ema50=indicators.get("ema50"),
-            rsi14=indicators.get("rsi14"),
-            macd_line=indicators.get("macd_line"),
-            macd_signal=indicators.get("macd_signal"),
-            macd_hist=indicators.get("macd_hist"),
+            timeframe=event.timeframe,
+            ema21=m5_indicators.get("ema21"),
+            ema50=m5_indicators.get("ema50"),
+            rsi14=m5_indicators.get("rsi14"),
+            macd_line=m5_indicators.get("macd_line"),
+            macd_signal=m5_indicators.get("macd_signal"),
+            macd_hist=m5_indicators.get("macd_hist"),
             mid_price=event.mid_price,
         )
         self._bus.publish(signal)
         logger.info(
             "AnalysisAgent published signal: %s %s entry=%.5f sl=%.5f tp=%.5f conf=%.1f",
-            symbol_base,
-            direction,
-            entry,
-            stop_loss,
-            take_profit,
-            confidence,
+            symbol_base, direction, entry, sl, tp, confidence,
         )
-
-    # ------------------------------------------------------------------
-    # Pre-flight indicator filter
-    # ------------------------------------------------------------------
-
-    def _preflight_indicator_check(
-        self,
-        zone_type: str,
-        indicators: dict,
-        symbol: str = "",
-        zone_id=None,
-    ) -> str:
-        """
-        Return a non-empty skip reason string if the indicator context strongly
-        contradicts the zone type, so the caller can avoid a needless GPT call.
-        Returns empty string when the setup is worth sending to GPT.
-
-        Rules (all three conditions must be met to skip):
-          Support zone  → GPT would suggest BUY:
-            skip when ema21 < ema50  AND  rsi > 65  AND  macd_hist < 0
-            (downtrend, not oversold, bearish momentum — bounce unlikely)
-          Resistance zone → GPT would suggest SELL:
-            skip when ema21 > ema50  AND  rsi < 35  AND  macd_hist > 0
-            (uptrend, not overbought, bullish momentum — rejection unlikely)
-        """
-        ema21      = indicators.get("ema21")
-        ema50      = indicators.get("ema50")
-        rsi14      = indicators.get("rsi14")
-        macd_hist  = indicators.get("macd_hist")
-
-        if None in (ema21, ema50, rsi14, macd_hist):
-            return ""  # missing indicators — let GPT decide
-
-        ztype = (zone_type or "").lower()
-        if ztype == "support":
-            if ema21 < ema50 and rsi14 > 65 and macd_hist < 0:
-                return (
-                    f"indicators contradict support bounce "
-                    f"(ema21={ema21:.5f} < ema50={ema50:.5f}, "
-                    f"rsi={rsi14:.1f}>65, macd_hist={macd_hist:.6f}<0)"
-                )
-        elif ztype == "resistance":
-            if ema21 > ema50 and rsi14 < 35 and macd_hist > 0:
-                return (
-                    f"indicators contradict resistance rejection "
-                    f"(ema21={ema21:.5f} > ema50={ema50:.5f}, "
-                    f"rsi={rsi14:.1f}<35, macd_hist={macd_hist:.6f}>0)"
-                )
-        return ""
 
     # ------------------------------------------------------------------
     # GPT-4o call
@@ -532,9 +364,8 @@ class AnalysisAgent:
     ) -> Optional[Dict]:
         """
         Call GPT-4o with the system + user prompt, parse the JSON response.
-        Retries up to 2 times on network errors, timeouts, or JSON parse failures,
-        with exponential backoff (2s, 4s). Returns None after all retries are
-        exhausted so the caller can reset the cooldown.
+        Retries up to 2 times on network errors or JSON parse failures.
+        Returns None after all retries are exhausted.
         """
         max_retries = 2
         backoff_sec = 2.0
@@ -559,31 +390,23 @@ class AnalysisAgent:
                 logger.debug("AnalysisAgent GPT response: %s", parsed)
                 return parsed
             except json.JSONDecodeError as exc:
-                last_exc = exc
                 logger.warning(
-                    "AnalysisAgent: GPT-4o JSON parse error (attempt %d/%d) for"
-                    " symbol=%s zone_id=%s: %s",
-                    attempt + 1, max_retries + 1, symbol, zone_id, exc,
+                    "AnalysisAgent: GPT-4o JSON parse error — not retrying: %s", exc
                 )
+                return None
             except Exception as exc:
                 last_exc = exc
                 logger.warning(
-                    "AnalysisAgent: OpenAI API call failed (attempt %d/%d) for"
-                    " symbol=%s zone_id=%s: %s",
-                    attempt + 1, max_retries + 1, symbol, zone_id, exc,
+                    "AnalysisAgent: OpenAI API call failed (attempt %d/%d): %s",
+                    attempt + 1, max_retries + 1, exc,
                 )
 
             if attempt < max_retries:
                 wait = backoff_sec * (2 ** attempt)
-                logger.debug(
-                    "AnalysisAgent: retrying in %.0fs (attempt %d/%d)",
-                    wait, attempt + 1, max_retries,
-                )
                 time.sleep(wait)
 
         logger.error(
-            "AnalysisAgent: all %d GPT attempts failed for symbol=%s zone_id=%s —"
-            " discarding signal. Last error: %s",
+            "AnalysisAgent: all %d GPT attempts failed for symbol=%s zone_id=%s — Last error: %s",
             max_retries + 1, symbol, zone_id, last_exc,
         )
         return None

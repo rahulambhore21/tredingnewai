@@ -604,20 +604,8 @@ class Database:
         return {r["event_type"]: r["cnt"] for r in rows}
 
     def get_zone_touch_to_signal_rate(self) -> Dict[str, Any]:
-        """
-        Compare zone touches vs analysis-started vs signals generated.
-        Tells you how many touches resulted in actual analysis and signals.
-        """
-        with self._write_lock:
-            cur = self._conn.cursor()
-            cur.execute(
-                "SELECT event_type, COUNT(*) AS cnt FROM events "
-                "WHERE event_type IN "
-                "('zone_touch_event','analysis_started_event','signal_generated_event') "
-                "GROUP BY event_type"
-            )
-            rows = cur.fetchall()
-        return {r["event_type"]: r["cnt"] for r in rows}
+        # TODO: requires AnalysisStartedEvent to be published — currently dead
+        return {}
 
     def close(self) -> None:
         """Close the underlying SQLite connection cleanly."""

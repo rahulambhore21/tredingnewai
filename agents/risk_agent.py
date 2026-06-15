@@ -2,20 +2,21 @@
 agents/risk_agent.py — Risk gating layer.
 
 Subscribes to SignalGeneratedEvent.
-Runs 6 independent risk checks; publishes RiskEvaluatedEvent with
+Runs 5 independent risk checks; publishes RiskEvaluatedEvent with
 approved=True/False and the computed lot size.
 
 Checks (all must pass for approval):
-    1. R:R >= MIN_RR (1.2) — computed from entry/stop_loss/take_profit.
-    2. Open trades <= MAX_OPEN_TRADES (3) — via get_all_positions().
-    3. Today's realised P&L stays within [-DAILY_LOSS_LIMIT_USD, +DAILY_PROFIT_TARGET_USD]
-       — once the daily profit target or loss limit is reached, new trades are blocked
-       for the rest of the UTC day (existing open positions still run to their own SL/TP).
-    5. Lot size computed from a fixed dollar notional: volume ≈ FIXED_TRADE_USD / price,
-       rounded to the broker's volume step and clamped to [LOT_MIN, LOT_MAX].
+    1. R:R >= MIN_RR (2.0)
+    2. Open trades < MAX_OPEN_TRADES (1) — account-wide across all symbols
+    3. Correlated pairs not both open — EURUSD and USDJPY are correlated
+    4. Today's realised P&L > -DAILY_LOSS_LIMIT_USD (default -$30)
+    5. Today's realised P&L < DAILY_PROFIT_TARGET_USD (default $100)
 
-All errors inside the handler are caught and logged; a failed check causes
-rejection (not a crash).
+Lot sizing uses pip/point-value formula:
+    sl_distance = abs(entry - sl)
+    lot = RISK_PER_TRADE_USD / ((tick_value / tick_size) * sl_distance)
+    lot = clamp(lot, volume_min, volume_max)
+    lot = round_to_step(lot, volume_step)
 """
 
 import logging
@@ -36,22 +37,10 @@ logger = logging.getLogger(__name__)
 class RiskAgent:
     """
     Risk management gate between analysis signals and order execution.
-
-    Injected dependencies:
-        client: Shared MT5Client for position/account queries (read-only).
-        bus:    Shared EventBus for subscribing and publishing.
-        db:     Shared Database for reading daily/weekly PnL.
+    Synchronous event handler — no dedicated thread.
     """
 
     def __init__(self, client: MT5Client, bus: EventBus, db: Database) -> None:
-        """
-        Initialise and register subscription.
-
-        Args:
-            client: Connected MT5Client.
-            bus:    Shared EventBus.
-            db:     Shared Database (read-only from this agent).
-        """
         self._client = client
         self._bus    = bus
         self._db     = db
@@ -64,12 +53,6 @@ class RiskAgent:
     # ------------------------------------------------------------------
 
     def _on_signal(self, event: SignalGeneratedEvent) -> None:
-        """
-        Handle a SignalGeneratedEvent: run all risk checks and publish verdict.
-
-        Args:
-            event: The signal produced by analysis_agent.
-        """
         logger.info(
             "RiskAgent evaluating: %s %s entry=%.5f conf=%.1f",
             event.symbol, event.direction, event.entry, event.confidence,
@@ -77,11 +60,7 @@ class RiskAgent:
         try:
             self._evaluate(event)
         except Exception:
-            logger.exception(
-                "RiskAgent._evaluate raised for %s — publishing rejection",
-                event.symbol,
-            )
-            # Publish a safe rejection so the event chain is complete
+            logger.exception("RiskAgent._evaluate raised for %s — publishing rejection", event.symbol)
             self._publish_rejection(event, "Internal risk-agent error")
 
     # ------------------------------------------------------------------
@@ -89,73 +68,63 @@ class RiskAgent:
     # ------------------------------------------------------------------
 
     def _evaluate(self, event: SignalGeneratedEvent) -> None:
-        """
-        Run all 6 checks, compute lot size, and publish RiskEvaluatedEvent.
-        """
         failures: List[str] = []
 
-        # ----------------------------------------------------------
-        # Check 1: Risk-to-reward ratio >= MIN_RR
-        # ----------------------------------------------------------
+        # Check 1: R:R >= MIN_RR
         rr_ok = False
         try:
-            rr_ok = self._check_rr(
-                entry=event.entry,
-                stop_loss=event.stop_loss,
-                take_profit=event.take_profit,
-            )
+            rr_ok = self._check_rr(event.entry, event.stop_loss, event.take_profit)
             if not rr_ok:
-                failures.append(
-                    f"R:R too low (min {config.MIN_RR})"
-                )
+                failures.append(f"R:R too low (min {config.MIN_RR})")
         except Exception:
             logger.exception("RiskAgent: R:R check failed")
             failures.append("R:R check error")
 
-        # ----------------------------------------------------------
-        # Check 2: Open trades <= MAX_OPEN_TRADES  AND  symbol not already open
-        # ----------------------------------------------------------
+        # Check 2: Open trades < MAX_OPEN_TRADES
         max_trades_ok = False
-        open_symbols: Set[str] = set()
-        open_bases:   Set[str] = set()
+        open_bases: Set[str] = set()
         try:
             positions_df = self._client.order.get_all_positions()
             open_count = len(positions_df) if positions_df is not None else 0
 
-            # Collect open symbol names for correlation + re-entry checks
             if positions_df is not None and len(positions_df) > 0:
                 for sym_col in ("symbol", "Symbol"):
                     if sym_col in positions_df.columns:
-                        open_symbols = set(positions_df[sym_col].str.upper().tolist())
+                        open_bases = {
+                            s.replace(config.SYMBOL_SUFFIX, "").upper()
+                            for s in positions_df[sym_col].tolist()
+                        }
                         break
-            open_bases = {s.replace(config.SYMBOL_SUFFIX, "").upper() for s in open_symbols}
 
-            under_limit = open_count < config.MAX_OPEN_TRADES
-            symbol_free = event.symbol.upper() not in open_bases
-            max_trades_ok = under_limit and symbol_free
-
-            if not under_limit:
+            max_trades_ok = open_count < config.MAX_OPEN_TRADES
+            if not max_trades_ok:
                 failures.append(
                     f"Too many open trades ({open_count} >= {config.MAX_OPEN_TRADES})"
                 )
-            if not symbol_free:
-                failures.append(f"{event.symbol} already has an open position")
         except Exception:
             logger.exception("RiskAgent: open-trade count check failed")
             failures.append("Open-trade count check error")
 
-        # ----------------------------------------------------------
-        # Check 4: Today's realised P&L within [-DAILY_LOSS_LIMIT_USD, +DAILY_PROFIT_TARGET_USD]
-        # (from MT5 deal history). Once either bound is reached, new trades
-        # are blocked for the rest of the UTC day; existing positions are
-        # left alone to hit their own SL/TP.
-        # ----------------------------------------------------------
+        # Check 3: Correlated pairs not both open
+        correlation_ok = True
+        try:
+            for pair in config.CORRELATED_PAIRS:
+                if event.symbol.upper() in pair:
+                    other = pair[0] if pair[1] == event.symbol.upper() else pair[1]
+                    if other in open_bases:
+                        correlation_ok = False
+                        failures.append(
+                            f"Correlated pair {event.symbol}/{other} already open"
+                        )
+                        break
+        except Exception:
+            logger.exception("RiskAgent: correlation check failed")
+            failures.append("Correlation check error")
+
+        # Check 4 & 5: Today's realised P&L within bounds
         daily_loss_ok = False
         try:
-            today_start = datetime.now(tz=timezone.utc).replace(
-                hour=0, minute=0, second=0, microsecond=0, tzinfo=None
-            )
-            today_pnl = self._get_realized_pnl(today_start)
+            today_pnl = self._get_realized_pnl()
             daily_loss_ok = (
                 today_pnl > -config.DAILY_LOSS_LIMIT_USD
                 and today_pnl < config.DAILY_PROFIT_TARGET_USD
@@ -164,28 +133,22 @@ class RiskAgent:
                 if today_pnl >= config.DAILY_PROFIT_TARGET_USD:
                     failures.append(
                         f"Daily profit target reached (${today_pnl:.2f} >= "
-                        f"${config.DAILY_PROFIT_TARGET_USD:.2f}) — new trades blocked for today"
+                        f"${config.DAILY_PROFIT_TARGET_USD:.2f})"
                     )
                 else:
                     failures.append(
                         f"Daily loss limit hit (${today_pnl:.2f} <= "
-                        f"-${config.DAILY_LOSS_LIMIT_USD:.2f}) — new trades blocked for today"
+                        f"-${config.DAILY_LOSS_LIMIT_USD:.2f})"
                     )
         except Exception:
             logger.exception("RiskAgent: daily P&L check failed")
             failures.append("Daily P&L check error")
 
-        # ----------------------------------------------------------
-        # Check 5: Compute lot size from a fixed dollar notional
-        # ----------------------------------------------------------
-        volume = self._compute_lot_size(event.symbol, event.entry)
+        # Lot size computation
+        volume = self._compute_lot_size(event.symbol, event.entry, event.stop_loss)
 
-        # ----------------------------------------------------------
         # Verdict
-        # ----------------------------------------------------------
-        approved = (
-            rr_ok and max_trades_ok and daily_loss_ok
-        )
+        approved = rr_ok and max_trades_ok and correlation_ok and daily_loss_ok
         reason = "All checks passed" if approved else "; ".join(failures)
 
         self._bus.publish(
@@ -201,9 +164,9 @@ class RiskAgent:
                 volume=volume if approved else 0.0,
                 rr_ok=rr_ok,
                 max_trades_ok=max_trades_ok,
-                correlation_ok=True,
+                correlation_ok=correlation_ok,
                 daily_loss_ok=daily_loss_ok,
-                weekly_loss_ok=True,   # weekly $-limit check removed; always pass for audit consistency
+                weekly_loss_ok=True,
             )
         )
         logger.info(
@@ -216,122 +179,98 @@ class RiskAgent:
     # ------------------------------------------------------------------
 
     def _check_rr(self, entry: float, stop_loss: float, take_profit: float) -> bool:
-        """
-        Check that the risk-to-reward ratio meets the minimum threshold.
-
-        R:R = |take_profit - entry| / |entry - stop_loss|
-
-        Args:
-            entry, stop_loss, take_profit: Price levels from the signal.
-
-        Returns:
-            bool: True if R:R >= MIN_RR.
-        """
         risk   = abs(entry - stop_loss)
         reward = abs(take_profit - entry)
         if risk == 0:
             return False
         rr = reward / risk
         logger.debug("RiskAgent R:R = %.3f (min %.1f)", rr, config.MIN_RR)
-        # Use a small epsilon (1e-9) to handle floating-point imprecision
-        # when the ratio is very close to the threshold (e.g. exactly 1.5).
         return rr >= (config.MIN_RR - 1e-9)
 
-    def _get_realized_pnl(self, from_date: datetime) -> float:
+    def _get_realized_pnl(self) -> float:
         """
-        Return realized P&L in account currency from MT5 deal history since
-        *from_date* (naive UTC datetime).  Sums the 'profit' field of all
-        OUT deals (entry=1) — these are the closing legs of positions.
+        Return today's realised P&L (UTC).
+        Primary source: MT5 deal history.
+        Fallback: local DB trades table (bot-tracked trades only).
+        Never silently returns 0 on API failure — falls back to DB so the
+        daily limit check is never bypassed by a transient MT5 error.
         """
+        today_start = datetime.now(tz=timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        # Strip tzinfo only if the MT5 client requires naive datetimes
+        today_start_naive = today_start.replace(tzinfo=None)
         try:
+            now_naive = datetime.now(tz=timezone.utc).replace(tzinfo=None)
             df = self._client.history.get_deals_as_dataframe(
-                from_date=from_date,
-                to_date=datetime.now(),
+                from_date=today_start_naive,
+                to_date=now_naive,
             )
-            if df is None or len(df) == 0:
-                return 0.0
-            if "entry" not in df.columns or "profit" not in df.columns:
-                return 0.0
-            # entry=1 → DEAL_ENTRY_OUT (closing deal); entry=2 → INOUT (reverse)
-            closing = df[df["entry"].isin([1, 2])]
-            return float(closing["profit"].sum())
-        except Exception:
-            logger.exception("RiskAgent: failed to query MT5 deal history for PnL")
-            return 0.0
-
-    def _compute_lot_size(self, symbol: str, entry: float) -> float:
-        """
-        Compute lot size from a fixed dollar notional per trade.
-
-        Formula:
-            raw_lot = FIXED_TRADE_USD / (entry × contract_size)
-            volume  = floor(raw_lot / volume_step) × volume_step
-            Then clamped to [volume_min, volume_max].
-
-        For BTC at ~$65,000 with contract_size=1:
-            raw_lot = 10 / (65000 × 1) = 0.000153 → clamps up to volume_min.
-        That floor-clamp is expected and logged explicitly.
-
-        Args:
-            symbol: Base symbol (broker suffix applied via resolve_symbol).
-            entry:  Entry price from the signal (no extra API call).
-
-        Returns:
-            float: Lot size targeting ~FIXED_TRADE_USD of notional exposure.
-        """
-        if not entry or entry <= 0:
-            logger.warning(
-                "RiskAgent: invalid entry=%s — falling back to LOT_MIN=%.5f",
-                entry, config.LOT_MIN,
-            )
-            return config.LOT_MIN
-
-        vol_min = config.LOT_MIN
-        vol_max = config.LOT_MAX
-        try:
-            info    = self._client.market.get_symbol_info(config.resolve_symbol(symbol))
-            vol_min = float(info.get("volume_min", config.LOT_MIN)) or config.LOT_MIN
-            vol_max = float(info.get("volume_max", config.LOT_MAX)) or config.LOT_MAX
+            if df is not None and len(df) > 0:
+                if "entry" in df.columns and "profit" in df.columns:
+                    closing = df[df["entry"].isin([1, 2])]
+                    pnl = float(closing["profit"].sum())
+                    logger.debug("RiskAgent daily P&L from MT5 history: %.2f", pnl)
+                    return pnl
         except Exception:
             logger.warning(
-                "RiskAgent: get_symbol_info failed for %s — using config defaults",
-                symbol,
+                "RiskAgent: MT5 deal history unavailable — falling back to DB for today's P&L"
             )
 
-        if config.USE_VOLUME_MIN_FLOOR:
-            volume = round(vol_min, 5)
-            logger.debug("USE_VOLUME_MIN_FLOOR active, setting lot to %s", volume)
-            return volume
+        # Fallback: local DB (populated by TradeMonitor → db_consumer)
+        pnl = self._db.get_today_realized_pnl()
+        logger.debug("RiskAgent daily P&L from DB fallback: %.2f", pnl)
+        return pnl
 
-        vol_step      = vol_min
-        contract_size = 1.0
+    def _compute_lot_size(self, symbol: str, entry: float, stop_loss: float) -> float:
+        """
+        Compute lot size using pip/point-value formula:
+            sl_distance = abs(entry - sl)
+            lot = RISK_PER_TRADE_USD / ((tick_value / tick_size) * sl_distance)
+            lot = clamp(lot, volume_min, volume_max)
+            lot = round_to_step(lot, volume_step)
+        """
+        sl_distance = abs(entry - stop_loss)
+        if sl_distance == 0:
+            logger.warning("RiskAgent: sl_distance is 0 for %s — using volume_min", symbol)
+            sl_distance = 1e-5
+
+        fallback = config.TICK_VALUE_FALLBACK.get(symbol, {"tick_value": 1.0, "tick_size": 0.0001})
+        tick_value = fallback["tick_value"]
+        tick_size  = fallback["tick_size"]
+        vol_min    = 0.01
+        vol_max    = 100.0
+        vol_step   = 0.01
+
         try:
-            info          = self._client.market.get_symbol_info(config.resolve_symbol(symbol))
-            vol_step      = float(info.get("volume_step",         vol_min)) or vol_min
-            contract_size = float(info.get("trade_contract_size", 1.0))     or 1.0
+            info = self._client.market.get_symbol_info(config.resolve_symbol(symbol))
+            if info:
+                tick_value = float(info.get("trade_tick_value", tick_value) or tick_value)
+                tick_size  = float(info.get("trade_tick_size",  tick_size)  or tick_size)
+                vol_min    = float(info.get("volume_min",  vol_min)  or vol_min)
+                vol_max    = float(info.get("volume_max",  vol_max)  or vol_max)
+                vol_step   = float(info.get("volume_step", vol_step) or vol_step)
         except Exception:
-            pass  # already warned above
+            logger.warning(
+                "RiskAgent: get_symbol_info failed for %s — using fallback tick values", symbol
+            )
 
-        raw_lot = config.FIXED_TRADE_USD / (entry * contract_size)
+        if tick_size == 0:
+            tick_size = fallback["tick_size"]
+
+        raw_lot = config.RISK_PER_TRADE_USD / ((tick_value / tick_size) * sl_distance)
+
         if vol_step > 0:
             volume = math.floor(raw_lot / vol_step) * vol_step
         else:
             volume = raw_lot
+
         volume = round(max(vol_min, min(volume, vol_max)), 5)
 
         logger.info(
-            "Lot sizing: notional=$%.2f, entry=%.5f, contract=%.4f → raw_lot=%.8f, final_lot=%.5f",
-            config.FIXED_TRADE_USD, entry, contract_size, raw_lot, volume,
+            "Lot sizing: risk=$%.2f sl_dist=%.5f tick_val=%.4f tick_sz=%.5f → raw=%.8f lot=%.5f",
+            config.RISK_PER_TRADE_USD, sl_distance, tick_value, tick_size, raw_lot, volume,
         )
-
-        notional = volume * entry * contract_size
-        if notional > config.FIXED_TRADE_USD * 1.05:
-            logger.warning(
-                "RiskAgent: broker minimum lot forces notional=$%.2f (target $%.2f) "
-                "at entry=%.5f contract=%.4f — volume=%.5f (floor clamp applied)",
-                notional, config.FIXED_TRADE_USD, entry, contract_size, volume,
-            )
-
         return volume
 
     # ------------------------------------------------------------------
@@ -339,14 +278,6 @@ class RiskAgent:
     # ------------------------------------------------------------------
 
     def _publish_rejection(self, event: SignalGeneratedEvent, reason: str) -> None:
-        """
-        Publish a RiskEvaluatedEvent with approved=False. Used on exceptions
-        so the audit log always gets a row even on error paths.
-
-        Args:
-            event:  The original signal event.
-            reason: Human-readable rejection reason.
-        """
         try:
             self._bus.publish(
                 RiskEvaluatedEvent(
@@ -359,7 +290,7 @@ class RiskAgent:
                     approved=False,
                     reason=reason,
                     volume=0.0,
-                    weekly_loss_ok=True,   # weekly $-limit check removed; always pass for audit consistency
+                    weekly_loss_ok=True,
                 )
             )
         except Exception:

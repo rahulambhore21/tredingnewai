@@ -5,7 +5,7 @@ Usage:
     python scripts/check_connection.py
 
 Connects read-only (no orders), prints account info and symbol details for
-every instrument in config.INSTRUMENTS, then disconnects cleanly.
+every instrument in config.SYMBOLS, then disconnects cleanly.
 """
 
 import sys
@@ -48,14 +48,14 @@ def main() -> None:
 
     # Symbol info for each configured instrument
     print("\n--- Symbols ---")
-    for base in config.INSTRUMENTS:
+    for base in config.SYMBOLS:
         symbol = config.resolve_symbol(base)
         try:
             si = client.market.get_symbol_info(symbol)
             if si is None:
                 print(
                     f"[WARNING] Symbol '{symbol}' not found. "
-                    "Check broker suffix (e.g. BTCUSD.r, BTC/USD)"
+                    "Check broker suffix (e.g. EURUSD.r)"
                 )
                 continue
 
@@ -76,7 +76,7 @@ def main() -> None:
         except Exception as exc:
             print(
                 f"[WARNING] Symbol '{symbol}' not found. "
-                "Check broker suffix (e.g. BTCUSD.r, BTC/USD)\n"
+                "Check broker suffix (e.g. EURUSD.r)\n"
                 f"  Detail: {exc}"
             )
 
