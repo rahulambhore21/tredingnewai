@@ -198,6 +198,24 @@ class AnalysisAgent:
         symbol_base = event.symbol
         symbol = config.resolve_symbol(symbol_base)
 
+        # 0. Skip GPT call if max open trades already reached
+        try:
+            positions = self._client.order.get_all_positions()
+            open_count = 0 if positions is None else len(positions)
+        except Exception:
+            logger.warning(
+                "AnalysisAgent: could not fetch open positions — skipping zone touch for %s",
+                symbol_base,
+            )
+            return
+
+        if open_count >= config.MAX_OPEN_TRADES:
+            logger.info(
+                "AnalysisAgent: %d open trade(s) >= MAX_OPEN_TRADES (%d) — skipping GPT call for %s",
+                open_count, config.MAX_OPEN_TRADES, symbol_base,
+            )
+            return
+
         # 1. Fetch M5 candles
         m5_df = self._client.market.get_candles_latest(
             symbol, "M5", count=config.ANALYSIS_CANDLE_COUNT
