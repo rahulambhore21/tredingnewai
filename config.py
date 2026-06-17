@@ -50,11 +50,18 @@ DAILY_LOSS_LIMIT_USD    = 30.0
 
 RISK_PER_TRADE_USD = 10.0
 
-# Fallback tick values if get_symbol_info is unavailable
+# Fallback tick values if get_symbol_info is unavailable.
+# These are only used when the live get_symbol_info call fails, so the best
+# estimate of what it WOULD have returned is the broker's own observed values
+# (see trading_bot.log). The figure that matters for lot sizing is the ratio
+# tick_value/tick_size = account-currency loss per 1.0 price-unit move per lot:
+#   EURUSD  1.0 / 0.00001 = 100,000  (5-digit feed, standard 100k contract)
+#   USDJPY  0.62 / 0.001  ≈ 620      (3-digit JPY feed; price-dependent, ~JPY150)
+#   XAUUSD  0.1 / 0.01    = 10       (matches the live broker's observed ratio)
 TICK_VALUE_FALLBACK = {
-    "EURUSD": {"tick_value": 1.0, "tick_size": 0.0001},
-    "USDJPY": {"tick_value": 1.0, "tick_size": 0.01},
-    "XAUUSD": {"tick_value": 1.0, "tick_size": 0.01},
+    "EURUSD": {"tick_value": 1.0,  "tick_size": 0.00001},
+    "USDJPY": {"tick_value": 0.62, "tick_size": 0.001},
+    "XAUUSD": {"tick_value": 0.1,  "tick_size": 0.01},
 }
 
 # ---------------------------------------------------------------------------

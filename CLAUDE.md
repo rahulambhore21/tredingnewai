@@ -138,10 +138,12 @@ lot = clamp(lot, volume_min, volume_max)
 lot = round_to_step(lot, volume_step)
 ```
 
-`RISK_PER_TRADE_USD` defaults to $10. Fallback tick values if `get_symbol_info` is unavailable:
-- EURUSD: `tick_value=1.0`, `tick_size=0.0001`
-- USDJPY: `tick_value=1.0`, `tick_size=0.01`
-- XAUUSD: `tick_value=1.0`, `tick_size=0.01`
+`RISK_PER_TRADE_USD` defaults to $10. If the risk-correct lot is below the broker minimum (`volume_min`), the trade is **rejected** rather than clamped up to the minimum — clamping would place a position risking more than `RISK_PER_TRADE_USD`. Rejections are logged with a distinct `SUB-MIN LOT REJECT` tag for per-symbol auditing.
+
+Fallback tick values if `get_symbol_info` is unavailable (chosen to match the live broker's observed `tick_value/tick_size` ratio):
+- EURUSD: `tick_value=1.0`, `tick_size=0.00001` (ratio 100,000)
+- USDJPY: `tick_value=0.62`, `tick_size=0.001` (ratio ≈620)
+- XAUUSD: `tick_value=0.1`, `tick_size=0.01` (ratio 10)
 
 Weekly loss check: `weekly_loss_ok` field is hardcoded `True` (weekly P&L gate is disabled); it exists in `RiskEvaluatedEvent` for audit-log consistency only and has no effect on trade approval.
 

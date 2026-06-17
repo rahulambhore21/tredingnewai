@@ -22,7 +22,7 @@ Lot sizing uses pip/point-value formula:
 import logging
 import math
 from datetime import datetime, timezone
-from typing import List, Set
+from typing import List, Set, Tuple
 
 from metatrader_client import MT5Client
 
@@ -144,11 +144,18 @@ class RiskAgent:
             logger.exception("RiskAgent: daily P&L check failed")
             failures.append("Daily P&L check error")
 
-        # Lot size computation
-        volume = self._compute_lot_size(event.symbol, event.entry, event.stop_loss)
+        # Lot size computation — may itself veto the trade if the risk-correct
+        # lot is below the broker minimum (clamping up to vol_min would over-risk).
+        volume, lot_ok, lot_reason = self._compute_lot_size(
+            event.symbol, event.entry, event.stop_loss
+        )
+        if not lot_ok:
+            failures.append(lot_reason)
 
         # Verdict
-        approved = rr_ok and max_trades_ok and correlation_ok and daily_loss_ok
+        approved = (
+            rr_ok and max_trades_ok and correlation_ok and daily_loss_ok and lot_ok
+        )
         reason = "All checks passed" if approved else "; ".join(failures)
 
         self._bus.publish(
@@ -222,13 +229,22 @@ class RiskAgent:
         logger.debug("RiskAgent daily P&L from DB fallback: %.2f", pnl)
         return pnl
 
-    def _compute_lot_size(self, symbol: str, entry: float, stop_loss: float) -> float:
+    def _compute_lot_size(
+        self, symbol: str, entry: float, stop_loss: float
+    ) -> Tuple[float, bool, str]:
         """
         Compute lot size using pip/point-value formula:
             sl_distance = abs(entry - sl)
             lot = RISK_PER_TRADE_USD / ((tick_value / tick_size) * sl_distance)
             lot = clamp(lot, volume_min, volume_max)
             lot = round_to_step(lot, volume_step)
+
+        Returns ``(volume, lot_ok, reason)``:
+            - If the risk-correct lot is >= the broker minimum, returns the
+              step-rounded, clamped volume with ``lot_ok=True``.
+            - If it is below the broker minimum, returns ``(0.0, False, reason)``
+              so the caller can reject the trade. Clamping up to vol_min in that
+              case would place a position risking MORE than RISK_PER_TRADE_USD.
         """
         sl_distance = abs(entry - stop_loss)
         if sl_distance == 0:
@@ -258,7 +274,27 @@ class RiskAgent:
         if tick_size == 0:
             tick_size = fallback["tick_size"]
 
-        raw_lot = config.RISK_PER_TRADE_USD / ((tick_value / tick_size) * sl_distance)
+        value_per_unit = tick_value / tick_size  # account-currency loss per 1.0 price unit, per lot
+        raw_lot = config.RISK_PER_TRADE_USD / (value_per_unit * sl_distance)
+
+        # Option-1 guard: reject when the risk-correct lot is below the broker
+        # minimum instead of silently clamping up to vol_min. Clamping would
+        # place a position risking MORE than RISK_PER_TRADE_USD. Logged with a
+        # distinct, greppable "SUB-MIN LOT REJECT" tag for per-symbol auditing.
+        if raw_lot < vol_min:
+            would_be_risk = value_per_unit * sl_distance * vol_min
+            logger.warning(
+                "SUB-MIN LOT REJECT %s: raw_lot=%.6f < vol_min=%.5f "
+                "(sl_dist=%.5f tick_val=%.4f tick_sz=%.5f) — clamping to vol_min "
+                "would risk $%.2f vs cap $%.2f",
+                symbol, raw_lot, vol_min, sl_distance, tick_value, tick_size,
+                would_be_risk, config.RISK_PER_TRADE_USD,
+            )
+            return 0.0, False, (
+                f"Risk-correct lot {raw_lot:.6f} below broker min {vol_min:.5f} for "
+                f"{symbol} (sl_dist={sl_distance:.5f}); clamping would risk "
+                f"${would_be_risk:.2f} > cap ${config.RISK_PER_TRADE_USD:.2f}"
+            )
 
         if vol_step > 0:
             volume = math.floor(raw_lot / vol_step) * vol_step
@@ -271,7 +307,7 @@ class RiskAgent:
             "Lot sizing: risk=$%.2f sl_dist=%.5f tick_val=%.4f tick_sz=%.5f → raw=%.8f lot=%.5f",
             config.RISK_PER_TRADE_USD, sl_distance, tick_value, tick_size, raw_lot, volume,
         )
-        return volume
+        return volume, True, "ok"
 
     # ------------------------------------------------------------------
     # Helper: publish rejection
