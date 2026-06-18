@@ -16,7 +16,7 @@ Subscribes to:
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Dict
+from typing import Dict, Tuple
 
 from core.database import Database
 from core.event_bus import EventBus
@@ -50,8 +50,9 @@ class DBConsumer:
     def __init__(self, db: Database, bus: EventBus) -> None:
         self._db  = db
         self._bus = bus
-        self._last_signal_id: Dict[str, int] = {}
-        self._last_validation_id: Dict[str, int] = {}
+        # Keyed by (symbol, account_id) to avoid collisions across 4 accounts
+        self._last_signal_id: Dict[Tuple[str, int], int] = {}
+        self._last_validation_id: Dict[Tuple[str, int], int] = {}
         self._wire_subscriptions()
         logger.info("DBConsumer initialised and subscriptions wired.")
 
@@ -133,6 +134,7 @@ class DBConsumer:
 
     def _on_signal(self, event: SignalGeneratedEvent) -> None:
         try:
+            acct_key = (event.symbol, event.account_id)
             signal_id = self._db.insert_signal(
                 symbol=event.symbol,
                 direction=event.direction,
@@ -149,7 +151,7 @@ class DBConsumer:
                 macd_signal=event.macd_signal,
                 macd_hist=event.macd_hist,
             )
-            self._last_signal_id[event.symbol] = signal_id
+            self._last_signal_id[acct_key] = signal_id
 
             val_id = self._db.insert_validation_log(
                 symbol=event.symbol,
@@ -164,7 +166,7 @@ class DBConsumer:
                 take_profit=event.take_profit,
                 signal_id=signal_id,
             )
-            self._last_validation_id[event.symbol] = val_id
+            self._last_validation_id[acct_key] = val_id
 
             self._db.insert_event_log(
                 event_type=event.event_type,
@@ -184,8 +186,9 @@ class DBConsumer:
 
     def _on_risk(self, event: RiskEvaluatedEvent) -> None:
         try:
+            acct_key = (event.symbol, event.account_id)
             self._db.insert_risk_decision(
-                signal_id=self._last_signal_id.get(event.symbol),
+                signal_id=self._last_signal_id.get(acct_key),
                 symbol=event.symbol,
                 direction=event.direction,
                 approved=event.approved,
@@ -205,7 +208,7 @@ class DBConsumer:
                 symbol=event.symbol,
                 payload=_to_json(event),
             )
-            val_id = self._last_validation_id.get(event.symbol)
+            val_id = self._last_validation_id.get(acct_key)
             if val_id is not None:
                 self._db.update_validation_log_risk(val_id, event.approved, event.reason)
             logger.info(
@@ -221,6 +224,7 @@ class DBConsumer:
 
     def _on_trade(self, event: TradeExecutedEvent) -> None:
         try:
+            acct_key = (event.symbol, event.account_id)
             self._db.insert_trade(
                 symbol=event.symbol,
                 direction=event.direction,
@@ -234,13 +238,14 @@ class DBConsumer:
                 sl_tp_ok=event.sl_tp_modified,
                 error_msg=event.error_message,
                 dry_run=event.dry_run,
+                account_id=event.account_id,
             )
             self._db.insert_event_log(
                 event_type=event.event_type,
                 symbol=event.symbol,
                 payload=_to_json(event),
             )
-            val_id = self._last_validation_id.get(event.symbol)
+            val_id = self._last_validation_id.get(acct_key)
             if val_id is not None and event.order_id:
                 self._db.update_validation_log_trade(val_id, event.order_id, event.fill_price)
             logger.info(

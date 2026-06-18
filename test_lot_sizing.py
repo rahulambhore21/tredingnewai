@@ -1,5 +1,5 @@
 """
-test_lot_sizing.py — Offline unit test for RiskAgent._compute_lot_size.
+test_lot_sizing.py — Offline unit test for RiskAgent._compute_lot_and_levels.
 
 No MT5 dependency: RiskAgent is constructed with fake client/bus/db, exactly
 the way indicators/calculator.py is tested offline (see CLAUDE.md). Run with:
@@ -7,9 +7,8 @@ the way indicators/calculator.py is tested offline (see CLAUDE.md). Run with:
     python test_lot_sizing.py
 
 Exercises EURUSD / USDJPY / XAUUSD against both real broker tick values
-(observed in trading_bot.log) and the config fallback values, including at
-least one sl_distance per symbol that should trip the new sub-minimum-lot
-rejection path and one that should not.
+(observed in trading_bot.log) and the config fallback values.  Raw lots
+outside [LOT_MIN, LOT_MAX] are clamped; the method always returns ok=True.
 """
 
 import logging
@@ -61,7 +60,14 @@ class FakeDB:
 
 
 def make_agent(info_map):
-    return RiskAgent(FakeClient(info_map), FakeBus(), FakeDB())
+    account_config = {
+        "account_id": 1,
+        "direction": "BUY",  # doesn't matter for lot sizing tests
+        "login": 0,
+        "password": "",
+        "server": "",
+    }
+    return RiskAgent(FakeClient(info_map), FakeBus(), FakeDB(), account_config)
 
 
 def info(tick_value, tick_size, vmin=0.01, vmax=100.0, vstep=0.01):
@@ -100,24 +106,27 @@ FALLBACK_INFO = {}
 
 ENTRY = {"EURUSD": 1.08500, "USDJPY": 150.000, "XAUUSD": 2400.00}
 
+# Expected lots use SL_USD=50 / (ratio × sl_dist), clamped to [LOT_MIN=0.05, LOT_MAX=0.10].
+# Raw lots above LOT_MAX clamp down; raw lots below LOT_MIN clamp up.  ok is always True.
+#   EURUSD ratio=100 000 | USDJPY ratio=620 | XAUUSD ratio=10
 CASES = [
-    # ---- real values, ACCEPT ----
-    ("EURUSD real / normal",      REAL_INFO,     "EURUSD", 0.0050, True,  0.02),
-    ("XAUUSD real / sl=4.63",     REAL_INFO,     "XAUUSD", 4.63,   True,  0.21),
-    ("XAUUSD real / sl=8.99",     REAL_INFO,     "XAUUSD", 8.99,   True,  0.11),
-    ("USDJPY real / normal",      REAL_INFO,     "USDJPY", 0.30,   True,  0.05),
-    # ---- real values, REJECT (sl_distance large enough to push raw_lot < vol_min) ----
-    ("EURUSD real / huge SL",     REAL_INFO,     "EURUSD", 0.0200, False, 0.0),
-    ("XAUUSD real / huge SL",     REAL_INFO,     "XAUUSD", 150.0,  False, 0.0),
-    ("USDJPY real / huge SL",     REAL_INFO,     "USDJPY", 2.00,   False, 0.0),
-    # ---- fallback values, ACCEPT (proves fixed EURUSD/USDJPY fallback == real path) ----
-    ("EURUSD fallback / normal",  FALLBACK_INFO, "EURUSD", 0.0050, True,  0.02),
-    ("USDJPY fallback / normal",  FALLBACK_INFO, "USDJPY", 0.30,   True,  0.05),
-    # ---- fallback values, REJECT ----
-    ("EURUSD fallback / huge SL", FALLBACK_INFO, "EURUSD", 0.0200, False, 0.0),
-    ("USDJPY fallback / huge SL", FALLBACK_INFO, "USDJPY", 2.00,   False, 0.0),
-    # ---- XAUUSD fallback: now ratio 10, matches the real path's 0.21 ----
-    ("XAUUSD fallback / sl=4.63", FALLBACK_INFO, "XAUUSD", 4.63,   True,  0.21),
+    # ---- real values, raw_lot in range or above LOT_MAX → clamped to 0.10 ----
+    ("EURUSD real / normal",         REAL_INFO,     "EURUSD", 0.0050, True,  0.10),
+    ("XAUUSD real / sl=4.63",        REAL_INFO,     "XAUUSD", 4.63,   True,  0.10),
+    ("XAUUSD real / sl=8.99",        REAL_INFO,     "XAUUSD", 8.99,   True,  0.10),
+    ("USDJPY real / normal",         REAL_INFO,     "USDJPY", 0.30,   True,  0.10),
+    # ---- real values, raw_lot below LOT_MIN → clamped up to 0.05 ----
+    ("EURUSD real / huge SL",        REAL_INFO,     "EURUSD", 0.0200, True,  0.05),
+    ("XAUUSD real / huge SL",        REAL_INFO,     "XAUUSD", 150.0,  True,  0.05),
+    ("USDJPY real / huge SL",        REAL_INFO,     "USDJPY", 2.00,   True,  0.05),
+    # ---- fallback values match real (proves fallback tick values are equivalent) ----
+    ("EURUSD fallback / normal",     FALLBACK_INFO, "EURUSD", 0.0050, True,  0.10),
+    ("USDJPY fallback / normal",     FALLBACK_INFO, "USDJPY", 0.30,   True,  0.10),
+    # ---- fallback values, raw_lot below LOT_MIN → clamped up to 0.05 ----
+    ("EURUSD fallback / huge SL",    FALLBACK_INFO, "EURUSD", 0.0200, True,  0.05),
+    ("USDJPY fallback / huge SL",    FALLBACK_INFO, "USDJPY", 2.00,   True,  0.05),
+    # ---- XAUUSD fallback ratio 10 matches real path ----
+    ("XAUUSD fallback / sl=4.63",    FALLBACK_INFO, "XAUUSD", 4.63,   True,  0.10),
 ]
 
 
@@ -132,7 +141,9 @@ def run():
         agent = make_agent(info_map)
         entry = ENTRY[symbol]
         stop_loss = entry - sl_dist
-        volume, lot_ok, reason = agent._compute_lot_size(symbol, entry, stop_loss)
+        volume, _sl, _tp, lot_ok, reason = agent._compute_lot_and_levels(
+            symbol, entry, stop_loss, "BUY"
+        )
 
         ok_match = (lot_ok == expect_ok)
         lot_match = (abs(volume - expect_lot) < 1e-9)

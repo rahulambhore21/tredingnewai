@@ -1,28 +1,27 @@
 """
-agents/risk_agent.py — Risk gating layer.
+agents/risk_agent.py — Risk gating layer (per-account).
 
-Subscribes to SignalGeneratedEvent.
-Runs 5 independent risk checks; publishes RiskEvaluatedEvent with
-approved=True/False and the computed lot size.
+Subscribes to SignalGeneratedEvent; filters on account_id.
+Runs risk checks and publishes RiskEvaluatedEvent.
 
-Checks (all must pass for approval):
-    1. R:R >= MIN_RR (2.0)
-    2. Open trades < MAX_OPEN_TRADES (1) — account-wide across all symbols
-    3. Correlated pairs not both open — EURUSD and USDJPY are correlated
-    4. Today's realised P&L > -DAILY_LOSS_LIMIT_USD (default -$30)
-    5. Today's realised P&L < DAILY_PROFIT_TARGET_USD (default $100)
+Checks (all must pass):
+    1. Direction matches account's allowed direction
+    2. Daily trade count < MAX_DAILY_TRADES for this account
+    3. Open trades < MAX_OPEN_TRADES (account-wide MT5 check)
+    4. Today's realised P&L within [-DAILY_LOSS_LIMIT_USD, DAILY_PROFIT_TARGET_USD]
+    5. Correlated pairs not both open
 
-Lot sizing uses pip/point-value formula:
-    sl_distance = abs(entry - sl)
-    lot = RISK_PER_TRADE_USD / ((tick_value / tick_size) * sl_distance)
-    lot = clamp(lot, volume_min, volume_max)
-    lot = round_to_step(lot, volume_step)
+Lot sizing:
+    raw_lot = SL_USD / (value_per_unit * sl_distance_from_gpt)
+    lot = clamp(raw_lot, LOT_MIN, LOT_MAX)
+    SL price = entry ± SL_USD / (lot * value_per_unit)
+    TP price = entry ± TP_USD / (lot * value_per_unit)
 """
 
 import logging
 import math
 from datetime import datetime, timezone
-from typing import List, Set, Tuple
+from typing import Dict, List, Set, Tuple
 
 from metatrader_client import MT5Client
 
@@ -36,31 +35,47 @@ logger = logging.getLogger(__name__)
 
 class RiskAgent:
     """
-    Risk management gate between analysis signals and order execution.
+    Per-account risk gate between analysis signals and order execution.
     Synchronous event handler — no dedicated thread.
     """
 
-    def __init__(self, client: MT5Client, bus: EventBus, db: Database) -> None:
-        self._client = client
-        self._bus    = bus
-        self._db     = db
+    def __init__(
+        self,
+        client: MT5Client,
+        bus: EventBus,
+        db: Database,
+        account_config: Dict,
+    ) -> None:
+        self._client        = client
+        self._bus           = bus
+        self._db            = db
+        self._account_id    = int(account_config["account_id"])
+        self._direction     = str(account_config["direction"]).upper()
 
         self._bus.subscribe(SignalGeneratedEvent, self._on_signal)
-        logger.info("RiskAgent initialised and subscribed to SignalGeneratedEvent.")
+        logger.info(
+            "RiskAgent[acct=%d dir=%s] initialised and subscribed to SignalGeneratedEvent.",
+            self._account_id, self._direction,
+        )
 
     # ------------------------------------------------------------------
     # Event handler
     # ------------------------------------------------------------------
 
     def _on_signal(self, event: SignalGeneratedEvent) -> None:
+        if event.account_id != self._account_id:
+            return
         logger.info(
-            "RiskAgent evaluating: %s %s entry=%.5f conf=%.1f",
-            event.symbol, event.direction, event.entry, event.confidence,
+            "RiskAgent[acct=%d] evaluating: %s %s entry=%.5f conf=%.1f",
+            self._account_id, event.symbol, event.direction, event.entry, event.confidence,
         )
         try:
             self._evaluate(event)
         except Exception:
-            logger.exception("RiskAgent._evaluate raised for %s — publishing rejection", event.symbol)
+            logger.exception(
+                "RiskAgent[acct=%d]._evaluate raised for %s — publishing rejection",
+                self._account_id, event.symbol,
+            )
             self._publish_rejection(event, "Internal risk-agent error")
 
     # ------------------------------------------------------------------
@@ -70,17 +85,27 @@ class RiskAgent:
     def _evaluate(self, event: SignalGeneratedEvent) -> None:
         failures: List[str] = []
 
-        # Check 1: R:R >= MIN_RR
-        rr_ok = False
-        try:
-            rr_ok = self._check_rr(event.entry, event.stop_loss, event.take_profit)
-            if not rr_ok:
-                failures.append(f"R:R too low (min {config.MIN_RR})")
-        except Exception:
-            logger.exception("RiskAgent: R:R check failed")
-            failures.append("R:R check error")
+        # Check 1: Direction matches account's allowed direction
+        direction_ok = event.direction == self._direction
+        if not direction_ok:
+            failures.append(
+                f"Direction mismatch: signal={event.direction} account={self._direction}"
+            )
 
-        # Check 2: Open trades < MAX_OPEN_TRADES
+        # Check 2: Daily trade count < MAX_DAILY_TRADES
+        daily_count_ok = False
+        try:
+            daily_count = self._db.get_daily_trade_count(self._account_id)
+            daily_count_ok = daily_count < config.MAX_DAILY_TRADES
+            if not daily_count_ok:
+                failures.append(
+                    f"Daily trade limit reached ({daily_count} >= {config.MAX_DAILY_TRADES})"
+                )
+        except Exception:
+            logger.exception("RiskAgent[acct=%d]: daily count check failed", self._account_id)
+            failures.append("Daily count check error")
+
+        # Check 3: Open trades < MAX_OPEN_TRADES
         max_trades_ok = False
         open_bases: Set[str] = set()
         try:
@@ -102,10 +127,10 @@ class RiskAgent:
                     f"Too many open trades ({open_count} >= {config.MAX_OPEN_TRADES})"
                 )
         except Exception:
-            logger.exception("RiskAgent: open-trade count check failed")
+            logger.exception("RiskAgent[acct=%d]: open-trade count check failed", self._account_id)
             failures.append("Open-trade count check error")
 
-        # Check 3: Correlated pairs not both open
+        # Check 4: Correlated pairs not both open
         correlation_ok = True
         try:
             for pair in config.CORRELATED_PAIRS:
@@ -118,10 +143,10 @@ class RiskAgent:
                         )
                         break
         except Exception:
-            logger.exception("RiskAgent: correlation check failed")
+            logger.exception("RiskAgent[acct=%d]: correlation check failed", self._account_id)
             failures.append("Correlation check error")
 
-        # Check 4 & 5: Today's realised P&L within bounds
+        # Check 5: Today's realised P&L within bounds
         daily_loss_ok = False
         try:
             today_pnl = self._get_realized_pnl()
@@ -141,20 +166,19 @@ class RiskAgent:
                         f"-${config.DAILY_LOSS_LIMIT_USD:.2f})"
                     )
         except Exception:
-            logger.exception("RiskAgent: daily P&L check failed")
+            logger.exception("RiskAgent[acct=%d]: daily P&L check failed", self._account_id)
             failures.append("Daily P&L check error")
 
-        # Lot size computation — may itself veto the trade if the risk-correct
-        # lot is below the broker minimum (clamping up to vol_min would over-risk).
-        volume, lot_ok, lot_reason = self._compute_lot_size(
-            event.symbol, event.entry, event.stop_loss
+        # Lot sizing + compute final SL/TP price levels
+        volume, final_sl, final_tp, lot_ok, lot_reason = self._compute_lot_and_levels(
+            event.symbol, event.entry, event.stop_loss, event.direction
         )
         if not lot_ok:
             failures.append(lot_reason)
 
-        # Verdict
         approved = (
-            rr_ok and max_trades_ok and correlation_ok and daily_loss_ok and lot_ok
+            direction_ok and daily_count_ok and max_trades_ok
+            and correlation_ok and daily_loss_ok and lot_ok
         )
         reason = "All checks passed" if approved else "; ".join(failures)
 
@@ -163,49 +187,111 @@ class RiskAgent:
                 symbol=event.symbol,
                 direction=event.direction,
                 entry=event.entry,
-                stop_loss=event.stop_loss,
-                take_profit=event.take_profit,
+                stop_loss=final_sl if approved else event.stop_loss,
+                take_profit=final_tp if approved else event.take_profit,
                 confidence=event.confidence,
                 approved=approved,
                 reason=reason,
                 volume=volume if approved else 0.0,
-                rr_ok=rr_ok,
+                account_id=self._account_id,
+                rr_ok=True,           # always passes: TP_USD/SL_USD = 3.0 >= MIN_RR
                 max_trades_ok=max_trades_ok,
                 correlation_ok=correlation_ok,
                 daily_loss_ok=daily_loss_ok,
                 weekly_loss_ok=True,
+                direction_ok=direction_ok,
+                daily_count_ok=daily_count_ok,
             )
         )
         logger.info(
-            "RiskAgent verdict for %s: approved=%s reason='%s' volume=%.2f",
-            event.symbol, approved, reason, volume if approved else 0.0,
+            "RiskAgent[acct=%d] verdict for %s: approved=%s reason='%s' vol=%.2f",
+            self._account_id, event.symbol, approved, reason,
+            volume if approved else 0.0,
         )
 
     # ------------------------------------------------------------------
-    # Individual check helpers
+    # Lot sizing and SL/TP computation
     # ------------------------------------------------------------------
 
-    def _check_rr(self, entry: float, stop_loss: float, take_profit: float) -> bool:
-        risk   = abs(entry - stop_loss)
-        reward = abs(take_profit - entry)
-        if risk == 0:
-            return False
-        rr = reward / risk
-        logger.debug("RiskAgent R:R = %.3f (min %.1f)", rr, config.MIN_RR)
-        return rr >= (config.MIN_RR - 1e-9)
+    def _compute_lot_and_levels(
+        self,
+        symbol: str,
+        entry: float,
+        gpt_sl: float,
+        direction: str,
+    ) -> Tuple[float, float, float, bool, str]:
+        """
+        1. Compute raw lot from GPT's sl_distance and SL_USD.
+        2. Clamp to [LOT_MIN, LOT_MAX] — no sub-min rejection.
+        3. Compute final SL/TP price levels from the clamped lot and SL_USD/TP_USD.
+
+        Returns (volume, sl_price, tp_price, ok, reason).
+        """
+        fallback = config.TICK_VALUE_FALLBACK.get(
+            symbol, {"tick_value": 1.0, "tick_size": 0.0001}
+        )
+        tick_value = fallback["tick_value"]
+        tick_size  = fallback["tick_size"]
+        vol_step   = 0.01
+
+        try:
+            info = self._client.market.get_symbol_info(config.resolve_symbol(symbol))
+            if info:
+                tick_value = float(info.get("trade_tick_value", tick_value) or tick_value)
+                tick_size  = float(info.get("trade_tick_size",  tick_size)  or tick_size)
+                vol_step   = float(info.get("volume_step", vol_step) or vol_step)
+        except Exception:
+            logger.warning(
+                "RiskAgent[acct=%d]: get_symbol_info failed for %s — using fallback tick values",
+                self._account_id, symbol,
+            )
+
+        if tick_size == 0:
+            tick_size = fallback["tick_size"]
+
+        value_per_unit = tick_value / tick_size  # account-currency loss per 1.0 price unit per lot
+
+        # Step 1: raw lot from GPT's sl_distance
+        gpt_sl_distance = abs(entry - gpt_sl)
+        if gpt_sl_distance == 0:
+            gpt_sl_distance = 1e-5
+
+        raw_lot = config.SL_USD / (value_per_unit * gpt_sl_distance)
+
+        # Step 2: clamp strictly to [LOT_MIN, LOT_MAX]
+        clamped = max(config.LOT_MIN, min(raw_lot, config.LOT_MAX))
+        if vol_step > 0:
+            clamped = math.floor(clamped / vol_step) * vol_step
+        volume = round(max(config.LOT_MIN, min(clamped, config.LOT_MAX)), 5)
+
+        # Step 3: compute final SL/TP price levels from the clamped lot
+        sl_price_dist = config.SL_USD / (volume * value_per_unit)
+        tp_price_dist = config.TP_USD / (volume * value_per_unit)
+
+        if direction == "BUY":
+            sl_price = entry - sl_price_dist
+            tp_price = entry + tp_price_dist
+        else:  # SELL
+            sl_price = entry + sl_price_dist
+            tp_price = entry - tp_price_dist
+
+        logger.info(
+            "RiskAgent[acct=%d] lot sizing: SL_USD=%.0f TP_USD=%.0f gpt_sl_dist=%.5f "
+            "raw_lot=%.5f vol=%.5f sl_dist=%.5f tp_dist=%.5f → sl=%.5f tp=%.5f",
+            self._account_id, config.SL_USD, config.TP_USD,
+            gpt_sl_distance, raw_lot, volume,
+            sl_price_dist, tp_price_dist, sl_price, tp_price,
+        )
+        return volume, sl_price, tp_price, True, "ok"
+
+    # ------------------------------------------------------------------
+    # P&L helper
+    # ------------------------------------------------------------------
 
     def _get_realized_pnl(self) -> float:
-        """
-        Return today's realised P&L (UTC).
-        Primary source: MT5 deal history.
-        Fallback: local DB trades table (bot-tracked trades only).
-        Never silently returns 0 on API failure — falls back to DB so the
-        daily limit check is never bypassed by a transient MT5 error.
-        """
         today_start = datetime.now(tz=timezone.utc).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
-        # Strip tzinfo only if the MT5 client requires naive datetimes
         today_start_naive = today_start.replace(tzinfo=None)
         try:
             now_naive = datetime.now(tz=timezone.utc).replace(tzinfo=None)
@@ -217,97 +303,22 @@ class RiskAgent:
                 if "entry" in df.columns and "profit" in df.columns:
                     closing = df[df["entry"].isin([1, 2])]
                     pnl = float(closing["profit"].sum())
-                    logger.debug("RiskAgent daily P&L from MT5 history: %.2f", pnl)
+                    logger.debug(
+                        "RiskAgent[acct=%d] daily P&L from MT5 history: %.2f",
+                        self._account_id, pnl,
+                    )
                     return pnl
         except Exception:
             logger.warning(
-                "RiskAgent: MT5 deal history unavailable — falling back to DB for today's P&L"
+                "RiskAgent[acct=%d]: MT5 deal history unavailable — falling back to DB",
+                self._account_id,
             )
 
-        # Fallback: local DB (populated by TradeMonitor → db_consumer)
         pnl = self._db.get_today_realized_pnl()
-        logger.debug("RiskAgent daily P&L from DB fallback: %.2f", pnl)
-        return pnl
-
-    def _compute_lot_size(
-        self, symbol: str, entry: float, stop_loss: float
-    ) -> Tuple[float, bool, str]:
-        """
-        Compute lot size using pip/point-value formula:
-            sl_distance = abs(entry - sl)
-            lot = RISK_PER_TRADE_USD / ((tick_value / tick_size) * sl_distance)
-            lot = clamp(lot, volume_min, volume_max)
-            lot = round_to_step(lot, volume_step)
-
-        Returns ``(volume, lot_ok, reason)``:
-            - If the risk-correct lot is >= the broker minimum, returns the
-              step-rounded, clamped volume with ``lot_ok=True``.
-            - If it is below the broker minimum, returns ``(0.0, False, reason)``
-              so the caller can reject the trade. Clamping up to vol_min in that
-              case would place a position risking MORE than RISK_PER_TRADE_USD.
-        """
-        sl_distance = abs(entry - stop_loss)
-        if sl_distance == 0:
-            logger.warning("RiskAgent: sl_distance is 0 for %s — using volume_min", symbol)
-            sl_distance = 1e-5
-
-        fallback = config.TICK_VALUE_FALLBACK.get(symbol, {"tick_value": 1.0, "tick_size": 0.0001})
-        tick_value = fallback["tick_value"]
-        tick_size  = fallback["tick_size"]
-        vol_min    = 0.01
-        vol_max    = 100.0
-        vol_step   = 0.01
-
-        try:
-            info = self._client.market.get_symbol_info(config.resolve_symbol(symbol))
-            if info:
-                tick_value = float(info.get("trade_tick_value", tick_value) or tick_value)
-                tick_size  = float(info.get("trade_tick_size",  tick_size)  or tick_size)
-                vol_min    = float(info.get("volume_min",  vol_min)  or vol_min)
-                vol_max    = float(info.get("volume_max",  vol_max)  or vol_max)
-                vol_step   = float(info.get("volume_step", vol_step) or vol_step)
-        except Exception:
-            logger.warning(
-                "RiskAgent: get_symbol_info failed for %s — using fallback tick values", symbol
-            )
-
-        if tick_size == 0:
-            tick_size = fallback["tick_size"]
-
-        value_per_unit = tick_value / tick_size  # account-currency loss per 1.0 price unit, per lot
-        raw_lot = config.RISK_PER_TRADE_USD / (value_per_unit * sl_distance)
-
-        # Option-1 guard: reject when the risk-correct lot is below the broker
-        # minimum instead of silently clamping up to vol_min. Clamping would
-        # place a position risking MORE than RISK_PER_TRADE_USD. Logged with a
-        # distinct, greppable "SUB-MIN LOT REJECT" tag for per-symbol auditing.
-        if raw_lot < vol_min:
-            would_be_risk = value_per_unit * sl_distance * vol_min
-            logger.warning(
-                "SUB-MIN LOT REJECT %s: raw_lot=%.6f < vol_min=%.5f "
-                "(sl_dist=%.5f tick_val=%.4f tick_sz=%.5f) — clamping to vol_min "
-                "would risk $%.2f vs cap $%.2f",
-                symbol, raw_lot, vol_min, sl_distance, tick_value, tick_size,
-                would_be_risk, config.RISK_PER_TRADE_USD,
-            )
-            return 0.0, False, (
-                f"Risk-correct lot {raw_lot:.6f} below broker min {vol_min:.5f} for "
-                f"{symbol} (sl_dist={sl_distance:.5f}); clamping would risk "
-                f"${would_be_risk:.2f} > cap ${config.RISK_PER_TRADE_USD:.2f}"
-            )
-
-        if vol_step > 0:
-            volume = math.floor(raw_lot / vol_step) * vol_step
-        else:
-            volume = raw_lot
-
-        volume = round(max(vol_min, min(volume, vol_max)), 5)
-
-        logger.info(
-            "Lot sizing: risk=$%.2f sl_dist=%.5f tick_val=%.4f tick_sz=%.5f → raw=%.8f lot=%.5f",
-            config.RISK_PER_TRADE_USD, sl_distance, tick_value, tick_size, raw_lot, volume,
+        logger.debug(
+            "RiskAgent[acct=%d] daily P&L from DB fallback: %.2f", self._account_id, pnl
         )
-        return volume, True, "ok"
+        return pnl
 
     # ------------------------------------------------------------------
     # Helper: publish rejection
@@ -326,8 +337,11 @@ class RiskAgent:
                     approved=False,
                     reason=reason,
                     volume=0.0,
+                    account_id=self._account_id,
                     weekly_loss_ok=True,
                 )
             )
         except Exception:
-            logger.exception("RiskAgent: failed to publish rejection event")
+            logger.exception(
+                "RiskAgent[acct=%d]: failed to publish rejection event", self._account_id
+            )

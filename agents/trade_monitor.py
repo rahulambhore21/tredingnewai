@@ -26,12 +26,13 @@ POLL_INTERVAL_SEC = 30.0
 
 class TradeMonitor:
     """
-    Watches bot-placed positions and fires TradeClosedEvent when they close.
+    Per-account watcher that fires TradeClosedEvent when bot-placed positions close.
     """
 
-    def __init__(self, client: MT5Client, bus: EventBus) -> None:
-        self._client = client
-        self._bus    = bus
+    def __init__(self, client: MT5Client, bus: EventBus, account_id: int = 0) -> None:
+        self._client     = client
+        self._bus        = bus
+        self._account_id = account_id
 
         self._tracked: Dict[int, Dict] = {}
         self._lock = threading.Lock()
@@ -39,7 +40,7 @@ class TradeMonitor:
         self._stop_event = threading.Event()
         self._thread = threading.Thread(
             target=self._run_loop,
-            name="TradeMonitor",
+            name=f"TradeMonitor-{account_id}",
             daemon=True,
         )
         self.last_heartbeat: float = time.time()
@@ -60,16 +61,20 @@ class TradeMonitor:
             return
         self._stop_event.clear()
         self._thread = threading.Thread(
-            target=self._run_loop, name="TradeMonitor", daemon=True
+            target=self._run_loop,
+            name=f"TradeMonitor-{self._account_id}",
+            daemon=True,
         )
         self._thread.start()
-        logger.warning("TradeMonitor thread restarted by watchdog.")
+        logger.warning("TradeMonitor[acct=%d] thread restarted by watchdog.", self._account_id)
 
     # ------------------------------------------------------------------
     # Track newly placed positions
     # ------------------------------------------------------------------
 
     def _on_trade_executed(self, event: TradeExecutedEvent) -> None:
+        if event.account_id != self._account_id:
+            return
         if not event.success or not event.order_id or event.dry_run:
             return
         with self._lock:
@@ -80,8 +85,8 @@ class TradeMonitor:
                 "entry_price": event.fill_price or event.entry,
             }
         logger.info(
-            "TradeMonitor: tracking position %d (%s %s)",
-            event.order_id, event.symbol, event.direction,
+            "TradeMonitor[acct=%d]: tracking position %d (%s %s)",
+            self._account_id, event.order_id, event.symbol, event.direction,
         )
 
     # ------------------------------------------------------------------

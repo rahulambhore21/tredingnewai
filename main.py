@@ -1,32 +1,24 @@
 """
-main.py — Trading bot entry point.
+main.py — Trading bot entry point (4-account mode).
 
 Boot sequence:
     1. Configure logging.
-    2. Validate required environment variables.
-    3. Connect to MT5 terminal via MT5Client.
-    4. Initialise Database, EventBus, DBConsumer.
-    5. Instantiate all agents:
-         SRMapper     — scans all symbols; signals zones_ready when done
-         PriceWatcher — single loop over all symbols; waits for zones_ready
-         AnalysisAgent — single queue+thread; handles all ZoneTouchEvents
-         RiskAgent    — synchronous event handler
-         Executor     — synchronous event handler
-         TradeMonitor — polls every 30s for closed positions
-    6. Start threads; watchdog loop checks MT5 connection and thread health.
-    7. Graceful shutdown on Ctrl+C.
+    2. Validate 4 account configs from env vars.
+    3. Connect 4 MT5 clients (one per account).
+    4. Initialise shared infrastructure: Database, EventBus, DBConsumer.
+    5. Start shared market agents (SRMapper, PriceWatcher) using account-1 client.
+    6. Start 4 per-account pipelines: AnalysisAgent, RiskAgent, Executor, TradeMonitor.
+    7. Watchdog loop: MT5 health checks + thread restarts.
+    8. Graceful shutdown on Ctrl+C.
 
-Run:
-    python main.py
-
-Toggle dry-run:
-    Set EXECUTION_LIVE=False in your .env file or environment.
+Toggle dry-run: Set EXECUTION_LIVE=False in .env.
 """
 
 import logging
 import logging.handlers
 import sys
 import time
+from typing import Dict, List
 
 import config
 from core.database import Database
@@ -78,12 +70,25 @@ logger = logging.getLogger(__name__)
 def _validate_config() -> None:
     errors = []
 
-    if not config.MT5_CONFIG.get("login") or config.MT5_CONFIG["login"] == 0:
-        errors.append("MT5_LOGIN is not set (must be a non-zero integer).")
-    if not config.MT5_CONFIG.get("password"):
-        errors.append("MT5_PASSWORD is not set.")
-    if not config.MT5_CONFIG.get("server"):
-        errors.append("MT5_SERVER is not set.")
+    if not config.ACCOUNTS:
+        errors.append(
+            "No account configs found. Set MT5_LOGIN_1, MT5_PASSWORD_1, MT5_SERVER_1 "
+            "(up to _4) in .env."
+        )
+    else:
+        for acct in config.ACCOUNTS:
+            i = acct["account_id"]
+            if not acct["login"]:
+                errors.append(f"MT5_LOGIN_{i} is not set or zero.")
+            if not acct["password"]:
+                errors.append(f"MT5_PASSWORD_{i} is not set.")
+            if not acct["server"]:
+                errors.append(f"MT5_SERVER_{i} is not set.")
+            if acct["direction"] not in ("BUY", "SELL"):
+                errors.append(
+                    f"MT5_DIRECTION_{i} must be BUY or SELL (got '{acct['direction']}')."
+                )
+
     if not config.OPENAI_API_KEY:
         errors.append("OPENAI_API_KEY is not set.")
 
@@ -101,63 +106,96 @@ def _validate_config() -> None:
 
 def main() -> None:
     logger.info("=" * 60)
-    logger.info("Trading Bot starting up …")
+    logger.info("Trading Bot starting up (4-account mode) …")
     logger.info("EXECUTION_LIVE = %s", config.EXECUTION_LIVE)
     logger.info("Symbols: %s", config.SYMBOLS)
+    logger.info("Accounts: %s", [(a["account_id"], a["direction"]) for a in config.ACCOUNTS])
+    logger.info(
+        "SL_USD=%.0f  TP_USD=%.0f  LOT_MIN=%.2f  LOT_MAX=%.2f  MAX_DAILY_TRADES=%d",
+        config.SL_USD, config.TP_USD, config.LOT_MIN, config.LOT_MAX, config.MAX_DAILY_TRADES,
+    )
     logger.info("=" * 60)
 
     _validate_config()
 
-    # --- MT5 connection ---
     from metatrader_client import MT5Client
 
-    client = MT5Client(config.MT5_CONFIG)
-    logger.info("Connecting to MT5 terminal …")
-    try:
-        connected = client.connect()
-        if not connected:
-            logger.error("MT5Client.connect() returned False — aborting.")
+    # --- Connect one MT5 client per account ---
+    clients: Dict[int, MT5Client] = {}
+    for acct in config.ACCOUNTS:
+        i = acct["account_id"]
+        mt5_cfg = {
+            "login":    acct["login"],
+            "password": acct["password"],
+            "server":   acct["server"],
+        }
+        client = MT5Client(mt5_cfg)
+        logger.info("Connecting account %d to MT5 (%s) …", i, acct["server"])
+        try:
+            if not client.connect():
+                logger.error("MT5Client.connect() returned False for account %d — aborting.", i)
+                sys.exit(1)
+        except Exception as exc:
+            logger.error("MT5 connection failed for account %d: %s", i, exc)
             sys.exit(1)
-    except Exception as exc:
-        logger.error("MT5 connection failed: %s", exc)
-        sys.exit(1)
+        clients[i] = client
+        logger.info("Account %d connected.", i)
 
-    logger.info("MT5 connected successfully.")
+    # Use account 1's client for shared market-data agents (SRMapper, PriceWatcher)
+    shared_client = clients[config.ACCOUNTS[0]["account_id"]]
 
-    # --- Core infrastructure ---
+    # --- Shared infrastructure ---
     db       = Database(config.DB_PATH)
     bus      = EventBus()
     consumer = DBConsumer(db, bus)
 
-    # --- Single-instance agents ---
-    sr_mapper     = SRMapper(client, bus, db)
-    price_watcher = PriceWatcher(client, bus, db, zones_ready=sr_mapper.zones_ready)
-    analysis      = AnalysisAgent(client, bus)
+    # --- Shared market agents ---
+    sr_mapper     = SRMapper(shared_client, bus, db)
+    price_watcher = PriceWatcher(shared_client, bus, db, zones_ready=sr_mapper.zones_ready)
 
-    # --- Synchronous event-driven agents (no threads) ---
-    risk     = RiskAgent(client, bus, db)
-    executor = Executor(client, bus)
+    # --- 4 per-account pipelines ---
+    analyses:  List[AnalysisAgent] = []
+    risks:     List[RiskAgent]     = []
+    executors: List[Executor]      = []
+    monitors:  List[TradeMonitor]  = []
 
-    # --- TradeMonitor — polls MT5 every 30s for closed positions ---
-    trade_monitor = TradeMonitor(client, bus)
+    for acct in config.ACCOUNTS:
+        i      = acct["account_id"]
+        client = clients[i]
 
-    # --- Start threads ---
-    sr_mapper.start()       # scans zones for all symbols; sets zones_ready
-    price_watcher.start()   # waits for zones_ready; polls all symbols
-    analysis.start()        # dedicated GPT thread
-    trade_monitor.start()   # polls closed positions every 30s
+        analyses.append(AnalysisAgent(client, bus, db, acct))
+        risks.append(RiskAgent(client, bus, db, acct))
+        executors.append(Executor(client, bus, acct))
+        monitors.append(TradeMonitor(client, bus, account_id=i))
 
+    # --- Start shared threads ---
+    sr_mapper.start()
+    price_watcher.start()
+
+    # --- Start per-account threads ---
+    for analysis in analyses:
+        analysis.start()
+    for monitor in monitors:
+        monitor.start()
+
+    n = len(config.ACCOUNTS)
     logger.info(
-        "All threads started (SRMapper, PriceWatcher, AnalysisAgent, TradeMonitor). Bot is running."
-        " Press Ctrl+C to stop."
+        "All threads started: SRMapper, PriceWatcher, %d×AnalysisAgent, %d×TradeMonitor. "
+        "Bot is running. Press Ctrl+C to stop.",
+        n, n,
     )
 
     # --- Watchdog setup ---
-    _WATCHDOG_AGENTS = [
+    _WATCHDOG_SHARED = [
         (sr_mapper,     "SRMapper",     150),
         (price_watcher, "PriceWatcher", config.TICK_INTERVAL_SEC * 5),
-        (analysis,      "AnalysisAgent", 60),
-        (trade_monitor, "TradeMonitor",  90),
+    ]
+    _WATCHDOG_PER_ACCOUNT = [
+        (analysis, f"AnalysisAgent-{analysis._account_id}", 60)
+        for analysis in analyses
+    ] + [
+        (monitor, f"TradeMonitor-{monitor._account_id}", 90)
+        for monitor in monitors
     ]
 
     _last_heartbeat_log = time.time()
@@ -166,22 +204,25 @@ def main() -> None:
         while True:
             time.sleep(60)
 
-            # MT5 connection health check
-            try:
-                info = client.account.get_account_info()
-                if info is None:
-                    raise RuntimeError("get_account_info returned None")
-            except Exception:
-                logger.warning("MT5 connection check failed — attempting reconnect …")
+            # MT5 connection health checks for all accounts
+            for i, client in clients.items():
                 try:
-                    client.connect()
-                    logger.info("MT5 reconnected successfully.")
+                    info = client.account.get_account_info()
+                    if info is None:
+                        raise RuntimeError("get_account_info returned None")
                 except Exception:
-                    logger.exception("MT5 reconnect failed — will retry next cycle")
+                    logger.warning(
+                        "MT5 connection check failed for account %d — attempting reconnect …", i
+                    )
+                    try:
+                        client.connect()
+                        logger.info("Account %d reconnected successfully.", i)
+                    except Exception:
+                        logger.exception("MT5 reconnect failed for account %d — will retry", i)
 
             # Thread watchdog — restart any dead agent threads
             now = time.time()
-            for agent_obj, label, threshold in _WATCHDOG_AGENTS:
+            for agent_obj, label, threshold in _WATCHDOG_SHARED + _WATCHDOG_PER_ACCOUNT:
                 stale_sec = now - getattr(agent_obj, "last_heartbeat", now)
                 if stale_sec > threshold:
                     logger.critical(
@@ -195,32 +236,42 @@ def main() -> None:
 
             # Heartbeat log every 5 minutes
             if (now - _last_heartbeat_log) >= 300:
-                def _alive(agent: object) -> bool:
+                def _alive(agent) -> bool:
                     t = getattr(agent, "_thread", None)
                     return t is not None and t.is_alive()
                 logger.info(
-                    "Heartbeat — sr_mapper=%s  price_watcher=%s  analysis=%s  trade_monitor=%s",
-                    _alive(sr_mapper),
-                    _alive(price_watcher),
-                    _alive(analysis),
-                    _alive(trade_monitor),
+                    "Heartbeat — sr_mapper=%s  price_watcher=%s",
+                    _alive(sr_mapper), _alive(price_watcher),
                 )
+                for analysis in analyses:
+                    logger.info(
+                        "  AnalysisAgent[acct=%d] alive=%s",
+                        analysis._account_id, _alive(analysis),
+                    )
+                for monitor in monitors:
+                    logger.info(
+                        "  TradeMonitor[acct=%d] alive=%s",
+                        monitor._account_id, _alive(monitor),
+                    )
                 _last_heartbeat_log = now
 
     except KeyboardInterrupt:
         logger.info("KeyboardInterrupt received — shutting down gracefully …")
 
     # --- Shutdown ---
-    analysis.stop()
-    trade_monitor.stop()
+    for analysis in analyses:
+        analysis.stop()
+    for monitor in monitors:
+        monitor.stop()
     price_watcher.stop()
     sr_mapper.stop()
 
-    try:
-        client.disconnect()
-        logger.info("MT5 disconnected.")
-    except Exception:
-        logger.exception("Error disconnecting from MT5.")
+    for i, client in clients.items():
+        try:
+            client.disconnect()
+            logger.info("Account %d MT5 disconnected.", i)
+        except Exception:
+            logger.exception("Error disconnecting account %d from MT5.", i)
 
     db.close()
     logger.info("Trading Bot stopped.")

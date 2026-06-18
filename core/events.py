@@ -80,6 +80,7 @@ class SignalGeneratedEvent(Event):
     reasoning: str
     zone_type: str
     zone_center: float
+    account_id: int = 0
     zone_id: Optional[int] = None
     zone_strength: Optional[int] = None
     timeframe: Optional[str] = None
@@ -107,11 +108,14 @@ class RiskEvaluatedEvent(Event):
     approved: bool
     reason: str
     volume: float
+    account_id: int = 0
     rr_ok: bool = False
     max_trades_ok: bool = False
     correlation_ok: bool = False
     daily_loss_ok: bool = False
     weekly_loss_ok: bool = True
+    direction_ok: bool = True
+    daily_count_ok: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +131,7 @@ class TradeExecutedEvent(Event):
     stop_loss: float
     take_profit: float
     success: bool
+    account_id: int = 0
     order_id: Optional[int] = None
     fill_price: Optional[float] = None
     sl_tp_modified: Optional[bool] = None

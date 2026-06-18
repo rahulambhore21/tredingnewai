@@ -185,9 +185,10 @@ class Database:
     def _migrate_tables(self) -> None:
         """Add columns introduced after the initial schema (idempotent)."""
         new_columns = [
-            ("trades", "close_price", "REAL"),
-            ("trades", "close_time", "TEXT"),
+            ("trades", "close_price",  "REAL"),
+            ("trades", "close_time",   "TEXT"),
             ("trades", "realized_pnl", "REAL"),
+            ("trades", "account_id",   "INTEGER"),
         ]
         with self._write_lock:
             cur = self._conn.cursor()
@@ -373,19 +374,21 @@ class Database:
         sl_tp_ok: Optional[bool],
         error_msg: Optional[str],
         dry_run: bool,
+        account_id: int = 0,
     ) -> int:
         """Insert a trades row. Returns the new row id."""
         return self._execute_write(
             """
             INSERT INTO trades
                 (symbol, direction, volume, entry, stop_loss, take_profit,
-                 order_id, fill_price, success, sl_tp_ok, error_msg, dry_run, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 order_id, fill_price, success, sl_tp_ok, error_msg, dry_run,
+                 account_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (symbol, direction, volume, entry, stop_loss, take_profit,
              order_id, fill_price, int(success),
              int(sl_tp_ok) if sl_tp_ok is not None else None,
-             error_msg, int(dry_run), self._now_iso()),
+             error_msg, int(dry_run), account_id, self._now_iso()),
         )
 
     # ------------------------------------------------------------------
@@ -537,6 +540,29 @@ class Database:
             )
             row = cur.fetchone()
         return float(row[0]) if row and row[0] is not None else 0.0
+
+    def get_daily_trade_count(self, account_id: int, date: Optional[str] = None) -> int:
+        """
+        Return the number of successfully executed (non-dry-run) trades for
+        *account_id* on *date* (UTC ISO date string, defaults to today).
+        """
+        if date is None:
+            date = datetime.now(tz=timezone.utc).date().isoformat()
+        with self._write_lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                SELECT COUNT(*)
+                FROM trades
+                WHERE dry_run=0
+                  AND success=1
+                  AND account_id=?
+                  AND DATE(created_at) = ?
+                """,
+                (account_id, date),
+            )
+            row = cur.fetchone()
+        return int(row[0]) if row else 0
 
     def get_week_realized_pnl(self) -> float:
         """

@@ -15,6 +15,7 @@ Dry-run (EXECUTION_LIVE=False):
 """
 
 import logging
+from typing import Dict
 
 from metatrader_client import MT5Client
 
@@ -27,29 +28,39 @@ logger = logging.getLogger(__name__)
 
 class Executor:
     """
-    Order execution agent — the last stage of the pipeline.
+    Per-account order execution agent — the last stage of the pipeline.
     Synchronous event handler — no dedicated thread.
     """
 
-    def __init__(self, client: MT5Client, bus: EventBus) -> None:
-        self._client = client
-        self._bus    = bus
+    def __init__(self, client: MT5Client, bus: EventBus, account_config: Dict) -> None:
+        self._client     = client
+        self._bus        = bus
+        self._account_id = int(account_config["account_id"])
 
         self._bus.subscribe(RiskEvaluatedEvent, self._on_risk_evaluated)
-        logger.info("Executor initialised — EXECUTION_LIVE=%s", config.EXECUTION_LIVE)
+        logger.info(
+            "Executor[acct=%d] initialised — EXECUTION_LIVE=%s",
+            self._account_id, config.EXECUTION_LIVE,
+        )
 
     # ------------------------------------------------------------------
     # Event handler
     # ------------------------------------------------------------------
 
     def _on_risk_evaluated(self, event: RiskEvaluatedEvent) -> None:
+        if event.account_id != self._account_id:
+            return
         if not event.approved:
-            logger.debug("Executor: signal rejected for %s — %s", event.symbol, event.reason)
+            logger.debug(
+                "Executor[acct=%d]: signal rejected for %s — %s",
+                self._account_id, event.symbol, event.reason,
+            )
             return
 
         logger.info(
-            "Executor received approved signal: %s %s vol=%.2f entry=%.5f sl=%.5f tp=%.5f",
-            event.symbol, event.direction, event.volume,
+            "Executor[acct=%d] received approved signal: %s %s vol=%.2f "
+            "entry=%.5f sl=%.5f tp=%.5f",
+            self._account_id, event.symbol, event.direction, event.volume,
             event.entry, event.stop_loss, event.take_profit,
         )
         try:
@@ -58,7 +69,10 @@ class Executor:
             else:
                 self._execute_dry_run(event)
         except Exception:
-            logger.exception("Executor raised during order processing for %s", event.symbol)
+            logger.exception(
+                "Executor[acct=%d] raised during order processing for %s",
+                self._account_id, event.symbol,
+            )
             self._publish_failure(event, "Unhandled executor exception")
 
     # ------------------------------------------------------------------
@@ -68,8 +82,8 @@ class Executor:
     def _execute_dry_run(self, event: RiskEvaluatedEvent) -> None:
         symbol = config.resolve_symbol(event.symbol)
         logger.info(
-            "DRY RUN — would place %s %s vol=%.2f sl=%.5f tp=%.5f on %s",
-            event.direction, symbol, event.volume,
+            "DRY RUN [acct=%d] — would place %s %s vol=%.2f sl=%.5f tp=%.5f on %s",
+            self._account_id, event.direction, symbol, event.volume,
             event.stop_loss, event.take_profit, symbol,
         )
         self._bus.publish(
@@ -81,6 +95,7 @@ class Executor:
                 stop_loss=event.stop_loss,
                 take_profit=event.take_profit,
                 success=True,
+                account_id=self._account_id,
                 order_id=None,
                 fill_price=event.entry,
                 sl_tp_modified=True,
@@ -173,6 +188,7 @@ class Executor:
                 stop_loss=event.stop_loss,
                 take_profit=event.take_profit,
                 success=sl_tp_ok,
+                account_id=self._account_id,
                 order_id=position_id,
                 fill_price=fill_price,
                 sl_tp_modified=sl_tp_ok,
@@ -196,6 +212,7 @@ class Executor:
                     stop_loss=event.stop_loss,
                     take_profit=event.take_profit,
                     success=False,
+                    account_id=self._account_id,
                     order_id=None,
                     fill_price=None,
                     sl_tp_modified=False,
@@ -204,4 +221,7 @@ class Executor:
                 )
             )
         except Exception:
-            logger.exception("Executor: failed to publish failure event for %s", event.symbol)
+            logger.exception(
+                "Executor[acct=%d]: failed to publish failure event for %s",
+                self._account_id, event.symbol,
+            )

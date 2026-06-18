@@ -13,7 +13,7 @@ load_dotenv()
 # Instruments & symbol resolution
 # ---------------------------------------------------------------------------
 
-SYMBOLS = ["EURUSD", "XAUUSD"]
+SYMBOLS = ["XAUUSD"]
 
 SYMBOL_SUFFIX = os.getenv("SYMBOL_SUFFIX", "")
 
@@ -48,7 +48,14 @@ CORRELATED_PAIRS = [("EURUSD", "USDJPY")]
 DAILY_PROFIT_TARGET_USD = 100.0
 DAILY_LOSS_LIMIT_USD    = 30.0
 
-RISK_PER_TRADE_USD = 10.0
+RISK_PER_TRADE_USD = 10.0  # legacy; per-account sizing now uses SL_USD/TP_USD
+
+# Fixed per-trade size parameters for 4-account mode
+MAX_DAILY_TRADES = int(os.getenv("MAX_DAILY_TRADES", "2"))
+LOT_MIN          = float(os.getenv("LOT_MIN", "0.05"))
+LOT_MAX          = float(os.getenv("LOT_MAX", "0.10"))
+SL_USD           = float(os.getenv("SL_USD",  "50.0"))
+TP_USD           = float(os.getenv("TP_USD", "150.0"))
 
 # Fallback tick values if get_symbol_info is unavailable.
 # These are only used when the live get_symbol_info call fails, so the best
@@ -75,7 +82,33 @@ SWING_LOOKBACK    = 5
 CLUSTER_TOLERANCE = 0.002
 
 # ---------------------------------------------------------------------------
-# MT5 connection configuration
+# 4-account configuration
+# ---------------------------------------------------------------------------
+
+def _load_account_configs():
+    accounts = []
+    for i in range(1, 5):
+        login_str = os.getenv(f"MT5_LOGIN_{i}", "")
+        if not login_str:
+            continue
+        try:
+            login_int = int(login_str)
+        except ValueError:
+            continue
+        accounts.append({
+            "account_id": i,
+            "login":      login_int,
+            "password":   os.getenv(f"MT5_PASSWORD_{i}", ""),
+            "server":     os.getenv(f"MT5_SERVER_{i}", ""),
+            "direction":  os.getenv(f"MT5_DIRECTION_{i}", "BUY").upper(),
+        })
+    return accounts
+
+
+ACCOUNTS = _load_account_configs()
+
+# ---------------------------------------------------------------------------
+# MT5 connection configuration (single-account legacy / shared client)
 # ---------------------------------------------------------------------------
 
 MT5_CONFIG = {

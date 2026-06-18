@@ -6,12 +6,13 @@ Processes events on its own dedicated thread so GPT API calls (2–10 s each)
 never block the PriceWatcher tick loop.
 
 For each ZoneTouchEvent:
-  1. Fetches 100 candles on both M5 and M15 for event.symbol
-  2. Computes EMA 20/50, RSI 14, MACD on both timeframes
-  3. Passes M15 data (trend) + M5 data (entry confirmation) to GPT-4o
-  4. GPT-4o returns: direction (BUY/SELL/NONE), sl, tp, confidence (0-10), reason
-  5. If direction is NONE, signal is silently dropped
-  6. Otherwise emits SignalGeneratedEvent
+  1. Pre-filters: daily trade count, account direction vs zone type
+  2. Fetches 100 candles on both M5 and M15 for event.symbol
+  3. Computes EMA 20/50, RSI 14, MACD on both timeframes
+  4. Passes M15 data (trend) + M5 data (entry confirmation) to GPT-4o
+  5. GPT-4o returns: direction (BUY/SELL/NONE), sl, tp, confidence (0-10), reason
+  6. If direction is NONE or doesn't match account direction, signal is dropped
+  7. Otherwise emits SignalGeneratedEvent with account_id
 """
 
 import collections
@@ -27,6 +28,7 @@ from openai import OpenAI
 from metatrader_client import MT5Client
 
 import config
+from core.database import Database
 from core.event_bus import EventBus
 from core.events import SignalGeneratedEvent, ZoneTouchEvent
 from indicators.calculator import compute_all_indicators, sort_candles_ascending
@@ -56,17 +58,24 @@ class AnalysisAgent:
     ZoneTouchEvents (for any symbol) are put on an internal queue by the
     event handler and processed by this agent's own dedicated thread.
     GPT calls never block the tick loop.
+
+    account_config must contain: account_id (int), direction ("BUY" or "SELL").
     """
 
     def __init__(
         self,
         client: MT5Client,
         bus: EventBus,
+        db: Database,
+        account_config: Dict,
         openai_client: Optional[OpenAI] = None,
     ) -> None:
-        self._client = client
-        self._bus    = bus
-        self._oai    = openai_client or OpenAI(api_key=config.OPENAI_API_KEY)
+        self._client        = client
+        self._bus           = bus
+        self._db            = db
+        self._account_id    = int(account_config["account_id"])
+        self._direction     = str(account_config["direction"]).upper()
+        self._oai           = openai_client or OpenAI(api_key=config.OPENAI_API_KEY)
 
         self._last_analysis: Dict[Tuple[str, int], float] = {}
         self._analysis_cooldown_sec = 30.0
@@ -79,20 +88,23 @@ class AnalysisAgent:
         self._stop_event = threading.Event()
         self._thread = threading.Thread(
             target=self._run_loop,
-            name="AnalysisAgent",
+            name=f"AnalysisAgent-{self._account_id}",
             daemon=True,
         )
         self.last_heartbeat: float = time.time()
 
         self._bus.subscribe(ZoneTouchEvent, self._on_zone_touch)
-        logger.info("AnalysisAgent initialised and subscribed to ZoneTouchEvent.")
+        logger.info(
+            "AnalysisAgent[acct=%d dir=%s] initialised and subscribed to ZoneTouchEvent.",
+            self._account_id, self._direction,
+        )
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
     def start(self) -> None:
-        logger.info("AnalysisAgent starting …")
+        logger.info("AnalysisAgent[acct=%d] starting …", self._account_id)
         self._thread.start()
 
     def stop(self) -> None:
@@ -107,10 +119,12 @@ class AnalysisAgent:
             return
         self._stop_event.clear()
         self._thread = threading.Thread(
-            target=self._run_loop, name="AnalysisAgent", daemon=True
+            target=self._run_loop,
+            name=f"AnalysisAgent-{self._account_id}",
+            daemon=True,
         )
         self._thread.start()
-        logger.warning("AnalysisAgent thread restarted by watchdog.")
+        logger.warning("AnalysisAgent[acct=%d] thread restarted by watchdog.", self._account_id)
 
     # ------------------------------------------------------------------
     # Event handler — runs on PriceWatcher's thread; must be fast
@@ -198,21 +212,56 @@ class AnalysisAgent:
         symbol_base = event.symbol
         symbol = config.resolve_symbol(symbol_base)
 
-        # 0. Skip GPT call if max open trades already reached
+        # 0a. Skip if daily trade count for this account >= MAX_DAILY_TRADES
+        try:
+            daily_count = self._db.get_daily_trade_count(self._account_id)
+        except Exception:
+            logger.warning(
+                "AnalysisAgent[acct=%d]: could not fetch daily trade count — skipping %s",
+                self._account_id, symbol_base,
+            )
+            return
+
+        if daily_count >= config.MAX_DAILY_TRADES:
+            logger.info(
+                "AnalysisAgent[acct=%d]: daily trade count %d >= MAX_DAILY_TRADES (%d) "
+                "— skipping GPT call for %s",
+                self._account_id, daily_count, config.MAX_DAILY_TRADES, symbol_base,
+            )
+            return
+
+        # 0b. Direction pre-filter: skip GPT when zone type can't produce account direction.
+        # support zones → BUY opportunity; resistance zones → SELL opportunity.
+        zone_type_lower = event.zone_type.lower()
+        if self._direction == "BUY" and zone_type_lower == "resistance":
+            logger.info(
+                "AnalysisAgent[acct=%d dir=BUY]: resistance zone — skipping GPT call for %s",
+                self._account_id, symbol_base,
+            )
+            return
+        if self._direction == "SELL" and zone_type_lower == "support":
+            logger.info(
+                "AnalysisAgent[acct=%d dir=SELL]: support zone — skipping GPT call for %s",
+                self._account_id, symbol_base,
+            )
+            return
+
+        # 0c. Skip GPT call if max open trades already reached (account-wide MT5 check)
         try:
             positions = self._client.order.get_all_positions()
             open_count = 0 if positions is None else len(positions)
         except Exception:
             logger.warning(
-                "AnalysisAgent: could not fetch open positions — skipping zone touch for %s",
-                symbol_base,
+                "AnalysisAgent[acct=%d]: could not fetch open positions — skipping %s",
+                self._account_id, symbol_base,
             )
             return
 
         if open_count >= config.MAX_OPEN_TRADES:
             logger.info(
-                "AnalysisAgent: %d open trade(s) >= MAX_OPEN_TRADES (%d) — skipping GPT call for %s",
-                open_count, config.MAX_OPEN_TRADES, symbol_base,
+                "AnalysisAgent[acct=%d]: %d open trade(s) >= MAX_OPEN_TRADES (%d) "
+                "— skipping GPT call for %s",
+                self._account_id, open_count, config.MAX_OPEN_TRADES, symbol_base,
             )
             return
 
@@ -266,17 +315,16 @@ class AnalysisAgent:
         m15_ema50 = m15_indicators.get("ema50", 0.0)
         if m15_ema21 and m15_ema50:
             m15_bullish = m15_ema21 > m15_ema50
-            zone_type_lower = event.zone_type.lower()
             if zone_type_lower == "support" and not m15_bullish:
                 logger.info(
-                    "AnalysisAgent: M15 bearish at support for %s — skipping GPT call",
-                    symbol_base,
+                    "AnalysisAgent[acct=%d]: M15 bearish at support for %s — skipping GPT call",
+                    self._account_id, symbol_base,
                 )
                 return
             if zone_type_lower == "resistance" and m15_bullish:
                 logger.info(
-                    "AnalysisAgent: M15 bullish at resistance for %s — skipping GPT call",
-                    symbol_base,
+                    "AnalysisAgent[acct=%d]: M15 bullish at resistance for %s — skipping GPT call",
+                    self._account_id, symbol_base,
                 )
                 return
 
@@ -309,14 +357,22 @@ class AnalysisAgent:
 
         if direction == "NONE":
             logger.info(
-                "AnalysisAgent: GPT returned NONE for %s zone_id=%s — dropping signal",
-                symbol_base, event.zone_id,
+                "AnalysisAgent[acct=%d]: GPT returned NONE for %s zone_id=%s — dropping signal",
+                self._account_id, symbol_base, event.zone_id,
             )
             return
 
         if direction not in ("BUY", "SELL"):
             logger.warning(
-                "AnalysisAgent: invalid direction '%s' from GPT-4o — discarding", direction
+                "AnalysisAgent[acct=%d]: invalid direction '%s' from GPT-4o — discarding",
+                self._account_id, direction,
+            )
+            return
+
+        if direction != self._direction:
+            logger.info(
+                "AnalysisAgent[acct=%d dir=%s]: GPT returned %s — direction mismatch, dropping",
+                self._account_id, self._direction, direction,
             )
             return
 
@@ -353,6 +409,7 @@ class AnalysisAgent:
             reasoning=reason,
             zone_type=event.zone_type,
             zone_center=event.price_center,
+            account_id=self._account_id,
             zone_id=event.zone_id,
             zone_strength=event.zone_strength,
             timeframe=event.timeframe,
@@ -366,8 +423,8 @@ class AnalysisAgent:
         )
         self._bus.publish(signal)
         logger.info(
-            "AnalysisAgent published signal: %s %s entry=%.5f sl=%.5f tp=%.5f conf=%.1f",
-            symbol_base, direction, entry, sl, tp, confidence,
+            "AnalysisAgent[acct=%d] published signal: %s %s entry=%.5f sl=%.5f tp=%.5f conf=%.1f",
+            self._account_id, symbol_base, direction, entry, sl, tp, confidence,
         )
 
     # ------------------------------------------------------------------
