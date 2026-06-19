@@ -51,6 +51,8 @@ class PriceWatcher:
 
         self._price_fail_last_logged: Dict[str, float] = {}
         self._price_fail_log_interval = 300.0
+        self._tick_count: Dict[str, int] = {}
+        self._tick_log_interval = 30  # log an INFO summary every N ticks
 
         self._stop_event = threading.Event()
         self._thread = threading.Thread(
@@ -132,6 +134,36 @@ class PriceWatcher:
         except Exception:
             logger.exception("PriceWatcher: DB read failed for %s", symbol_base)
             return
+
+        tick_n = self._tick_count.get(symbol_base, 0) + 1
+        self._tick_count[symbol_base] = tick_n
+
+        if zones:
+            nearest_dist_pct = min(
+                abs(mid - z["price_center"]) / z["price_center"] for z in zones
+            )
+            logger.debug(
+                "PriceWatcher tick: %s mid=%.5f zones=%d nearest=%.4f%% threshold=%.4f%%",
+                symbol_base, mid, len(zones),
+                nearest_dist_pct * 100, config.ZONE_TOUCH_PCT * 100,
+            )
+            if tick_n % self._tick_log_interval == 0:
+                logger.info(
+                    "PriceWatcher [tick %d]: %s mid=%.5f zones=%d "
+                    "nearest_zone=%.4f%% touch_threshold=%.4f%%",
+                    tick_n, symbol_base, mid, len(zones),
+                    nearest_dist_pct * 100, config.ZONE_TOUCH_PCT * 100,
+                )
+        else:
+            logger.debug(
+                "PriceWatcher tick: %s mid=%.5f — no active zones in DB",
+                symbol_base, mid,
+            )
+            if tick_n % self._tick_log_interval == 0:
+                logger.warning(
+                    "PriceWatcher [tick %d]: %s mid=%.5f — no active zones in DB",
+                    tick_n, symbol_base, mid,
+                )
 
         touched_zones = []
         for z in zones:

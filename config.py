@@ -75,11 +75,11 @@ TICK_VALUE_FALLBACK = {
 # S/R zone parameters
 # ---------------------------------------------------------------------------
 
-ZONE_TOUCH_PCT    = 0.001
+ZONE_TOUCH_PCT    = 0.003
 ZONE_COOLDOWN_MIN = 15
 ZONE_REFRESH_HOURS = 4
 SWING_LOOKBACK    = 5
-CLUSTER_TOLERANCE = 0.002
+CLUSTER_TOLERANCE = 0.0015
 
 # ---------------------------------------------------------------------------
 # 4-account configuration
