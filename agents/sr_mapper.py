@@ -1,7 +1,7 @@
 """
 agents/sr_mapper.py — Support & Resistance zone mapper.
 
-Scans S/R zones for all 3 symbols on both M5 and M15 on startup.
+Scans S/R zones for XAUUSD only (single active symbol) on both M5 and M15 on startup.
 Refreshes every ZONE_REFRESH_HOURS hours.
 Signals zones_ready only after all symbols are done.
 """

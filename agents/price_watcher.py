@@ -1,7 +1,7 @@
 """
 agents/price_watcher.py — Real-time price tick monitor.
 
-Waits for zones_ready, then polls prices for all 3 symbols every
+Waits for zones_ready, then polls prices for XAUUSD only (single active symbol) every
 TICK_INTERVAL_SEC in a single loop. Emits ZoneTouchEvent(symbol) when
 the live price enters a stored S/R zone.
 """

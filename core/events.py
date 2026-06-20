@@ -150,6 +150,7 @@ class TradeClosedEvent(Event):
     volume: float
     entry_price: float
     order_id: int
+    account_id: int = 0
     close_price: Optional[float] = None
     realized_pnl: float = 0.0
 

@@ -266,7 +266,8 @@ class DBConsumer:
                 close_price=event.close_price,
                 realized_pnl=event.realized_pnl,
             )
-            val_id = self._last_validation_id.get(event.symbol)
+            acct_key = (event.symbol, event.account_id)
+            val_id = self._last_validation_id.get(acct_key)
             if val_id is not None:
                 closed_at = datetime.now(tz=timezone.utc).isoformat()
                 trade_result = "WIN" if event.realized_pnl > 0 else ("LOSS" if event.realized_pnl < 0 else "BREAKEVEN")

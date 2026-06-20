@@ -187,7 +187,7 @@ class Executor:
                 entry=event.entry,
                 stop_loss=event.stop_loss,
                 take_profit=event.take_profit,
-                success=sl_tp_ok,
+                success=True,         # order was placed; sl_tp_modified tracks SL/TP separately
                 account_id=self._account_id,
                 order_id=position_id,
                 fill_price=fill_price,

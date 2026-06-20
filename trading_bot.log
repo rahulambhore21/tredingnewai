@@ -21343,3 +21343,407 @@ metatrader_client.exceptions.SymbolNotFoundError: Symbol 'BTCUSD' not found
 2026-06-15 23:37:21 | INFO     | agents.trade_monitor | TradeMonitor stopping …
 2026-06-15 23:37:21 | INFO     | agents.price_watcher | PriceWatcher stopping …
 2026-06-15 23:37:21 | INFO     | agents.sr_mapper | SRMapper stopping …
+2026-06-20 10:56:38 | INFO     | __main__ | ============================================================
+2026-06-20 10:56:38 | INFO     | __main__ | Trading Bot starting up (4-account mode) …
+2026-06-20 10:56:38 | INFO     | __main__ | EXECUTION_LIVE = True
+2026-06-20 10:56:38 | INFO     | __main__ | Symbols: ['XAUUSD']
+2026-06-20 10:56:38 | INFO     | __main__ | Accounts: [(1, 'BUY'), (2, 'BUY'), (3, 'SELL'), (4, 'SELL')]
+2026-06-20 10:56:38 | INFO     | __main__ | SL_USD=50  TP_USD=150  LOT_MIN=0.05  LOT_MAX=0.10  MAX_DAILY_TRADES=2
+2026-06-20 10:56:38 | INFO     | __main__ | ============================================================
+2026-06-20 10:56:38 | INFO     | __main__ | Connecting account 1 to MT5 (MetaQuotes-Demo) …
+2026-06-20 10:56:43 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 10:56:43 | INFO     | __main__ | Account 1 connected.
+2026-06-20 10:56:43 | INFO     | __main__ | Connecting account 2 to MT5 (MetaQuotes-Demo) …
+2026-06-20 10:56:43 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 10:56:43 | INFO     | __main__ | Account 2 connected.
+2026-06-20 10:56:43 | INFO     | __main__ | Connecting account 3 to MT5 (MetaQuotes-Demo) …
+2026-06-20 10:56:43 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 10:56:43 | INFO     | __main__ | Account 3 connected.
+2026-06-20 10:56:43 | INFO     | __main__ | Connecting account 4 to MT5 (MetaQuotes-Demo) …
+2026-06-20 10:56:43 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 10:56:43 | INFO     | __main__ | Account 4 connected.
+2026-06-20 10:56:43 | INFO     | core.database | Database: added column trades.account_id
+2026-06-20 10:56:43 | INFO     | core.database | Database initialised at trading_bot.db
+2026-06-20 10:56:43 | INFO     | core.db_consumer | DBConsumer initialised and subscriptions wired.
+2026-06-20 10:56:44 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1 dir=BUY] initialised and subscribed to ZoneTouchEvent.
+2026-06-20 10:56:44 | INFO     | agents.risk_agent | RiskAgent[acct=1 dir=BUY] initialised and subscribed to SignalGeneratedEvent.
+2026-06-20 10:56:44 | INFO     | agents.executor | Executor[acct=1] initialised — EXECUTION_LIVE=True
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2 dir=BUY] initialised and subscribed to ZoneTouchEvent.
+2026-06-20 10:56:45 | INFO     | agents.risk_agent | RiskAgent[acct=2 dir=BUY] initialised and subscribed to SignalGeneratedEvent.
+2026-06-20 10:56:45 | INFO     | agents.executor | Executor[acct=2] initialised — EXECUTION_LIVE=True
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent[acct=3 dir=SELL] initialised and subscribed to ZoneTouchEvent.
+2026-06-20 10:56:45 | INFO     | agents.risk_agent | RiskAgent[acct=3 dir=SELL] initialised and subscribed to SignalGeneratedEvent.
+2026-06-20 10:56:45 | INFO     | agents.executor | Executor[acct=3] initialised — EXECUTION_LIVE=True
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent[acct=4 dir=SELL] initialised and subscribed to ZoneTouchEvent.
+2026-06-20 10:56:45 | INFO     | agents.risk_agent | RiskAgent[acct=4 dir=SELL] initialised and subscribed to SignalGeneratedEvent.
+2026-06-20 10:56:45 | INFO     | agents.executor | Executor[acct=4] initialised — EXECUTION_LIVE=True
+2026-06-20 10:56:45 | INFO     | agents.sr_mapper | SRMapper starting …
+2026-06-20 10:56:45 | INFO     | agents.sr_mapper | SRMapper starting zone scan for all symbols …
+2026-06-20 10:56:45 | INFO     | agents.price_watcher | PriceWatcher starting …
+2026-06-20 10:56:45 | INFO     | agents.price_watcher | PriceWatcher waiting for zones_ready …
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1] starting …
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent processing loop started.
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2] starting …
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent processing loop started.
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent[acct=3] starting …
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent processing loop started.
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent[acct=4] starting …
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent processing loop started.
+2026-06-20 10:56:45 | INFO     | agents.trade_monitor | TradeMonitor starting …
+2026-06-20 10:56:45 | INFO     | agents.trade_monitor | TradeMonitor starting …
+2026-06-20 10:56:45 | INFO     | agents.trade_monitor | TradeMonitor starting …
+2026-06-20 10:56:45 | INFO     | agents.trade_monitor | TradeMonitor starting …
+2026-06-20 10:56:45 | INFO     | __main__ | All threads started: SRMapper, PriceWatcher, 4×AnalysisAgent, 4×TradeMonitor. Bot is running. Press Ctrl+C to stop.
+2026-06-20 10:56:45 | INFO     | agents.sr_mapper | XAUUSD M5: published 11 zones (4 resistance, 7 support)
+2026-06-20 10:56:45 | INFO     | agents.sr_mapper | XAUUSD M15: published 13 zones (5 resistance, 8 support)
+2026-06-20 10:56:45 | INFO     | agents.sr_mapper | SRMapper zone scan complete. Published 24 zones total.
+2026-06-20 10:56:45 | INFO     | agents.price_watcher | PriceWatcher zones ready — starting tick loop for all symbols
+2026-06-20 10:56:45 | INFO     | agents.price_watcher | Zone touch: XAUUSD support zone_id=2717 tf=M5 center=4144.03000 mid=4155.43000 dist=0.2751%
+2026-06-20 10:56:45 | INFO     | agents.price_watcher | Zone touch: XAUUSD resistance zone_id=2711 tf=M5 center=4151.90667 mid=4155.43000 dist=0.0849%
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4144.03000
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4144.03000
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4144.03000
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4144.03000
+2026-06-20 10:56:45 | INFO     | agents.price_watcher | Zone touch: XAUUSD resistance zone_id=2712 tf=M5 center=4160.37500 mid=4155.43000 dist=0.1189%
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent[acct=3 dir=SELL]: support zone — skipping GPT call for XAUUSD
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent[acct=4 dir=SELL]: support zone — skipping GPT call for XAUUSD
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4151.90667
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4151.90667
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4151.90667
+2026-06-20 10:56:45 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4151.90667
+2026-06-20 10:56:46 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2 dir=BUY]: resistance zone — skipping GPT call for XAUUSD
+2026-06-20 10:56:46 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1 dir=BUY]: resistance zone — skipping GPT call for XAUUSD
+2026-06-20 10:56:46 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4160.37500
+2026-06-20 10:56:46 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4160.37500
+2026-06-20 10:56:46 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2 dir=BUY]: resistance zone — skipping GPT call for XAUUSD
+2026-06-20 10:56:46 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1 dir=BUY]: resistance zone — skipping GPT call for XAUUSD
+2026-06-20 10:56:47 | INFO     | agents.price_watcher | Zone touch: XAUUSD support zone_id=2718 tf=M5 center=4151.17000 mid=4155.43000 dist=0.1026%
+2026-06-20 10:56:47 | INFO     | agents.price_watcher | Zone touch: XAUUSD support zone_id=2719 tf=M5 center=4162.05000 mid=4155.43000 dist=0.1591%
+2026-06-20 10:56:47 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4151.17000
+2026-06-20 10:56:47 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4151.17000
+2026-06-20 10:56:47 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 10:56:47 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4162.05000
+2026-06-20 10:56:47 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 10:56:47 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4162.05000
+2026-06-20 10:56:48 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 10:56:48 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 10:56:48 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 1/3): Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 10:56:48 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 1/3): Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 10:56:50 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 2/3): Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 10:56:51 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 2/3): Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 10:56:55 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 3/3): Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 10:56:55 | ERROR    | agents.analysis_agent | AnalysisAgent: all 3 GPT attempts failed for symbol=XAUUSD zone_id=2711 — Last error: Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 10:56:55 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4160.37500
+2026-06-20 10:56:55 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 1/3): Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 10:56:55 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 3/3): Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 10:56:55 | ERROR    | agents.analysis_agent | AnalysisAgent: all 3 GPT attempts failed for symbol=XAUUSD zone_id=2711 — Last error: Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 10:56:55 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4160.37500
+2026-06-20 10:56:55 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 1/3): Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 10:56:57 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 2/3): Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 10:56:58 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 2/3): Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 10:57:02 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 3/3): Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 10:57:02 | ERROR    | agents.analysis_agent | AnalysisAgent: all 3 GPT attempts failed for symbol=XAUUSD zone_id=2712 — Last error: Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 10:57:02 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4151.17000
+2026-06-20 10:57:02 | INFO     | agents.analysis_agent | AnalysisAgent[acct=4 dir=SELL]: support zone — skipping GPT call for XAUUSD
+2026-06-20 10:57:02 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4162.05000
+2026-06-20 10:57:02 | INFO     | agents.analysis_agent | AnalysisAgent[acct=4 dir=SELL]: support zone — skipping GPT call for XAUUSD
+2026-06-20 10:57:02 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 3/3): Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 10:57:02 | ERROR    | agents.analysis_agent | AnalysisAgent: all 3 GPT attempts failed for symbol=XAUUSD zone_id=2712 — Last error: Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 10:57:02 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4151.17000
+2026-06-20 10:57:02 | INFO     | agents.analysis_agent | AnalysisAgent[acct=3 dir=SELL]: support zone — skipping GPT call for XAUUSD
+2026-06-20 10:57:02 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4162.05000
+2026-06-20 10:57:02 | INFO     | agents.analysis_agent | AnalysisAgent[acct=3 dir=SELL]: support zone — skipping GPT call for XAUUSD
+2026-06-20 10:57:44 | INFO     | agents.price_watcher | PriceWatcher [tick 30]: XAUUSD mid=4155.43000 zones=81 nearest_zone=0.0849% touch_threshold=0.3000%
+2026-06-20 10:58:44 | INFO     | agents.price_watcher | PriceWatcher [tick 60]: XAUUSD mid=4155.43000 zones=81 nearest_zone=0.0849% touch_threshold=0.3000%
+2026-06-20 10:59:44 | INFO     | agents.price_watcher | PriceWatcher [tick 90]: XAUUSD mid=4155.43000 zones=81 nearest_zone=0.0849% touch_threshold=0.3000%
+2026-06-20 11:00:52 | WARNING  | __main__ | MT5 connection check failed for account 1 — attempting reconnect …
+2026-06-20 11:00:52 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 11:00:52 | INFO     | __main__ | Account 1 reconnected successfully.
+2026-06-20 11:00:52 | WARNING  | __main__ | MT5 connection check failed for account 2 — attempting reconnect …
+2026-06-20 11:00:52 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 11:00:52 | INFO     | __main__ | Account 2 reconnected successfully.
+2026-06-20 11:00:52 | WARNING  | __main__ | MT5 connection check failed for account 3 — attempting reconnect …
+2026-06-20 11:00:52 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 11:00:52 | INFO     | __main__ | Account 3 reconnected successfully.
+2026-06-20 11:00:52 | WARNING  | __main__ | MT5 connection check failed for account 4 — attempting reconnect …
+2026-06-20 11:00:52 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 11:00:52 | INFO     | __main__ | Account 4 reconnected successfully.
+2026-06-20 11:00:52 | CRITICAL | __main__ | HEARTBEAT STALE: PriceWatcher has not updated for 51 s (threshold 10 s)
+2026-06-20 11:59:55 | WARNING  | __main__ | MT5 connection check failed for account 1 — attempting reconnect …
+2026-06-20 11:59:55 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 11:59:55 | INFO     | __main__ | Account 1 reconnected successfully.
+2026-06-20 11:59:55 | WARNING  | __main__ | MT5 connection check failed for account 2 — attempting reconnect …
+2026-06-20 11:59:55 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 11:59:55 | INFO     | __main__ | Account 2 reconnected successfully.
+2026-06-20 11:59:55 | WARNING  | __main__ | MT5 connection check failed for account 3 — attempting reconnect …
+2026-06-20 11:59:55 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 11:59:55 | INFO     | __main__ | Account 3 reconnected successfully.
+2026-06-20 11:59:55 | WARNING  | __main__ | MT5 connection check failed for account 4 — attempting reconnect …
+2026-06-20 11:59:55 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 11:59:55 | INFO     | __main__ | Account 4 reconnected successfully.
+2026-06-20 11:59:55 | CRITICAL | __main__ | HEARTBEAT STALE: PriceWatcher has not updated for 3540 s (threshold 10 s)
+2026-06-20 11:59:55 | CRITICAL | __main__ | HEARTBEAT STALE: AnalysisAgent-1 has not updated for 3539 s (threshold 60 s)
+2026-06-20 11:59:55 | CRITICAL | __main__ | HEARTBEAT STALE: AnalysisAgent-2 has not updated for 3539 s (threshold 60 s)
+2026-06-20 11:59:55 | CRITICAL | __main__ | HEARTBEAT STALE: AnalysisAgent-3 has not updated for 3539 s (threshold 60 s)
+2026-06-20 11:59:55 | CRITICAL | __main__ | HEARTBEAT STALE: AnalysisAgent-4 has not updated for 3539 s (threshold 60 s)
+2026-06-20 11:59:55 | CRITICAL | __main__ | HEARTBEAT STALE: TradeMonitor-1 has not updated for 3610 s (threshold 90 s)
+2026-06-20 11:59:55 | CRITICAL | __main__ | HEARTBEAT STALE: TradeMonitor-2 has not updated for 3610 s (threshold 90 s)
+2026-06-20 11:59:55 | CRITICAL | __main__ | HEARTBEAT STALE: TradeMonitor-3 has not updated for 3610 s (threshold 90 s)
+2026-06-20 11:59:55 | CRITICAL | __main__ | HEARTBEAT STALE: TradeMonitor-4 has not updated for 3610 s (threshold 90 s)
+2026-06-20 11:59:55 | INFO     | __main__ | Heartbeat — sr_mapper=True  price_watcher=True
+2026-06-20 11:59:55 | INFO     | __main__ |   AnalysisAgent[acct=1] alive=True
+2026-06-20 11:59:55 | INFO     | __main__ |   AnalysisAgent[acct=2] alive=True
+2026-06-20 11:59:55 | INFO     | __main__ |   AnalysisAgent[acct=3] alive=True
+2026-06-20 11:59:55 | INFO     | __main__ |   AnalysisAgent[acct=4] alive=True
+2026-06-20 11:59:55 | INFO     | __main__ |   TradeMonitor[acct=1] alive=True
+2026-06-20 11:59:55 | INFO     | __main__ |   TradeMonitor[acct=2] alive=True
+2026-06-20 11:59:55 | INFO     | __main__ |   TradeMonitor[acct=3] alive=True
+2026-06-20 11:59:55 | INFO     | __main__ |   TradeMonitor[acct=4] alive=True
+2026-06-20 11:59:56 | INFO     | agents.price_watcher | Zone touch: XAUUSD support zone_id=2717 tf=M5 center=4144.03000 mid=4155.43000 dist=0.2751%
+2026-06-20 11:59:56 | INFO     | agents.price_watcher | Zone touch: XAUUSD resistance zone_id=2711 tf=M5 center=4151.90667 mid=4155.43000 dist=0.0849%
+2026-06-20 11:59:56 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4144.03000
+2026-06-20 11:59:56 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4144.03000
+2026-06-20 11:59:56 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4144.03000
+2026-06-20 11:59:56 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4144.03000
+2026-06-20 11:59:56 | INFO     | agents.price_watcher | Zone touch: XAUUSD resistance zone_id=2712 tf=M5 center=4160.37500 mid=4155.43000 dist=0.1189%
+2026-06-20 11:59:56 | INFO     | agents.analysis_agent | AnalysisAgent[acct=3 dir=SELL]: support zone — skipping GPT call for XAUUSD
+2026-06-20 11:59:56 | INFO     | agents.analysis_agent | AnalysisAgent[acct=4 dir=SELL]: support zone — skipping GPT call for XAUUSD
+2026-06-20 11:59:56 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4151.90667
+2026-06-20 11:59:56 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4151.90667
+2026-06-20 11:59:56 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 11:59:56 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4151.90667
+2026-06-20 11:59:56 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 11:59:56 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4151.90667
+2026-06-20 11:59:56 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2 dir=BUY]: resistance zone — skipping GPT call for XAUUSD
+2026-06-20 11:59:56 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4160.37500
+2026-06-20 11:59:56 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1 dir=BUY]: resistance zone — skipping GPT call for XAUUSD
+2026-06-20 11:59:56 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4160.37500
+2026-06-20 11:59:56 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2 dir=BUY]: resistance zone — skipping GPT call for XAUUSD
+2026-06-20 11:59:56 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1 dir=BUY]: resistance zone — skipping GPT call for XAUUSD
+2026-06-20 11:59:57 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 1/3): Connection error.
+2026-06-20 11:59:58 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 1/3): Connection error.
+2026-06-20 11:59:58 | INFO     | agents.price_watcher | Zone touch: XAUUSD support zone_id=2718 tf=M5 center=4151.17000 mid=4155.43000 dist=0.1026%
+2026-06-20 11:59:58 | INFO     | agents.price_watcher | Zone touch: XAUUSD support zone_id=2719 tf=M5 center=4162.05000 mid=4155.43000 dist=0.1591%
+2026-06-20 11:59:58 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4151.17000
+2026-06-20 11:59:58 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4151.17000
+2026-06-20 11:59:58 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 11:59:58 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4162.05000
+2026-06-20 11:59:58 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 11:59:58 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4162.05000
+2026-06-20 11:59:58 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 11:59:58 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 12:00:01 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 2/3): Connection error.
+2026-06-20 12:00:01 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 2/3): Connection error.
+2026-06-20 12:28:45 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 3/3): Connection error.
+2026-06-20 12:28:45 | ERROR    | agents.analysis_agent | AnalysisAgent: all 3 GPT attempts failed for symbol=XAUUSD zone_id=2711 — Last error: Connection error.
+2026-06-20 12:28:45 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4160.37500
+2026-06-20 12:28:45 | INFO     | agents.price_watcher | Zone touch: XAUUSD support zone_id=2717 tf=M5 center=4144.03000 mid=4155.43000 dist=0.2751%
+2026-06-20 12:28:45 | INFO     | agents.price_watcher | Zone touch: XAUUSD resistance zone_id=2711 tf=M5 center=4151.90667 mid=4155.43000 dist=0.0849%
+2026-06-20 12:28:45 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4144.03000
+2026-06-20 12:28:45 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4144.03000
+2026-06-20 12:28:45 | INFO     | agents.price_watcher | Zone touch: XAUUSD resistance zone_id=2712 tf=M5 center=4160.37500 mid=4155.43000 dist=0.1189%
+2026-06-20 12:28:45 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 12:28:45 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4151.90667
+2026-06-20 12:28:45 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 12:28:45 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2 dir=BUY]: resistance zone — skipping GPT call for XAUUSD
+2026-06-20 12:28:45 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4151.90667
+2026-06-20 12:28:45 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4160.37500
+2026-06-20 12:28:45 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1 dir=BUY]: resistance zone — skipping GPT call for XAUUSD
+2026-06-20 12:28:45 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2 dir=BUY]: resistance zone — skipping GPT call for XAUUSD
+2026-06-20 12:28:45 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4160.37500
+2026-06-20 12:28:45 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1 dir=BUY]: resistance zone — skipping GPT call for XAUUSD
+2026-06-20 12:28:45 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 3/3): Connection error.
+2026-06-20 12:28:45 | ERROR    | agents.analysis_agent | AnalysisAgent: all 3 GPT attempts failed for symbol=XAUUSD zone_id=2711 — Last error: Connection error.
+2026-06-20 12:28:45 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4160.37500
+2026-06-20 12:28:46 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 1/3): Connection error.
+2026-06-20 12:28:46 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 1/3): Connection error.
+2026-06-20 12:28:47 | INFO     | agents.price_watcher | Zone touch: XAUUSD support zone_id=2718 tf=M5 center=4151.17000 mid=4155.43000 dist=0.1026%
+2026-06-20 12:28:47 | INFO     | agents.price_watcher | Zone touch: XAUUSD support zone_id=2719 tf=M5 center=4162.05000 mid=4155.43000 dist=0.1591%
+2026-06-20 12:28:47 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4151.17000
+2026-06-20 12:28:47 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4151.17000
+2026-06-20 12:28:47 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 12:28:47 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 12:28:47 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4162.05000
+2026-06-20 12:28:47 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4162.05000
+2026-06-20 12:28:47 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 12:28:47 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 12:28:50 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 2/3): Connection error.
+2026-06-20 12:28:50 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 2/3): Connection error.
+2026-06-20 12:28:55 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 3/3): Connection error.
+2026-06-20 12:28:55 | ERROR    | agents.analysis_agent | AnalysisAgent: all 3 GPT attempts failed for symbol=XAUUSD zone_id=2712 — Last error: Connection error.
+2026-06-20 12:28:55 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4151.17000
+2026-06-20 12:28:55 | INFO     | agents.analysis_agent | AnalysisAgent[acct=3 dir=SELL]: support zone — skipping GPT call for XAUUSD
+2026-06-20 12:28:55 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4162.05000
+2026-06-20 12:28:55 | INFO     | agents.analysis_agent | AnalysisAgent[acct=3 dir=SELL]: support zone — skipping GPT call for XAUUSD
+2026-06-20 12:28:55 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4144.03000
+2026-06-20 12:28:55 | INFO     | agents.analysis_agent | AnalysisAgent[acct=3 dir=SELL]: support zone — skipping GPT call for XAUUSD
+2026-06-20 12:28:55 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4151.90667
+2026-06-20 12:28:55 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 3/3): Connection error.
+2026-06-20 12:28:55 | ERROR    | agents.analysis_agent | AnalysisAgent: all 3 GPT attempts failed for symbol=XAUUSD zone_id=2712 — Last error: Connection error.
+2026-06-20 12:28:55 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4151.17000
+2026-06-20 12:28:55 | INFO     | agents.analysis_agent | AnalysisAgent[acct=4 dir=SELL]: support zone — skipping GPT call for XAUUSD
+2026-06-20 12:28:55 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4162.05000
+2026-06-20 12:28:55 | INFO     | agents.analysis_agent | AnalysisAgent[acct=4 dir=SELL]: support zone — skipping GPT call for XAUUSD
+2026-06-20 12:28:55 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4144.03000
+2026-06-20 12:28:55 | INFO     | agents.analysis_agent | AnalysisAgent[acct=4 dir=SELL]: support zone — skipping GPT call for XAUUSD
+2026-06-20 12:28:55 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4151.90667
+2026-06-20 12:28:56 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 1/3): Connection error.
+2026-06-20 12:28:56 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 1/3): Connection error.
+2026-06-20 12:29:00 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 2/3): Connection error.
+2026-06-20 12:29:00 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 2/3): Connection error.
+2026-06-20 12:29:05 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 3/3): Connection error.
+2026-06-20 12:29:05 | ERROR    | agents.analysis_agent | AnalysisAgent: all 3 GPT attempts failed for symbol=XAUUSD zone_id=2711 — Last error: Connection error.
+2026-06-20 12:29:05 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 3/3): Connection error.
+2026-06-20 12:29:05 | ERROR    | agents.analysis_agent | AnalysisAgent: all 3 GPT attempts failed for symbol=XAUUSD zone_id=2711 — Last error: Connection error.
+2026-06-20 12:29:13 | INFO     | agents.price_watcher | PriceWatcher [tick 120]: XAUUSD mid=4155.43000 zones=81 nearest_zone=0.0849% touch_threshold=0.3000%
+2026-06-20 12:29:34 | WARNING  | __main__ | MT5 connection check failed for account 1 — attempting reconnect …
+2026-06-20 12:29:34 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 12:29:34 | INFO     | __main__ | Account 1 reconnected successfully.
+2026-06-20 12:29:34 | WARNING  | __main__ | MT5 connection check failed for account 2 — attempting reconnect …
+2026-06-20 12:29:34 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 12:29:34 | INFO     | __main__ | Account 2 reconnected successfully.
+2026-06-20 12:29:34 | WARNING  | __main__ | MT5 connection check failed for account 3 — attempting reconnect …
+2026-06-20 12:29:34 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 12:29:34 | INFO     | __main__ | Account 3 reconnected successfully.
+2026-06-20 12:29:34 | WARNING  | __main__ | MT5 connection check failed for account 4 — attempting reconnect …
+2026-06-20 12:29:34 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 12:29:34 | INFO     | __main__ | Account 4 reconnected successfully.
+2026-06-20 12:29:34 | INFO     | __main__ | Heartbeat — sr_mapper=True  price_watcher=True
+2026-06-20 12:29:34 | INFO     | __main__ |   AnalysisAgent[acct=1] alive=True
+2026-06-20 12:29:34 | INFO     | __main__ |   AnalysisAgent[acct=2] alive=True
+2026-06-20 12:29:34 | INFO     | __main__ |   AnalysisAgent[acct=3] alive=True
+2026-06-20 12:29:34 | INFO     | __main__ |   AnalysisAgent[acct=4] alive=True
+2026-06-20 12:29:34 | INFO     | __main__ |   TradeMonitor[acct=1] alive=True
+2026-06-20 12:29:34 | INFO     | __main__ |   TradeMonitor[acct=2] alive=True
+2026-06-20 12:29:34 | INFO     | __main__ |   TradeMonitor[acct=3] alive=True
+2026-06-20 12:29:34 | INFO     | __main__ |   TradeMonitor[acct=4] alive=True
+2026-06-20 12:30:13 | INFO     | agents.price_watcher | PriceWatcher [tick 150]: XAUUSD mid=4155.43000 zones=81 nearest_zone=0.0849% touch_threshold=0.3000%
+2026-06-20 12:30:34 | WARNING  | __main__ | MT5 connection check failed for account 1 — attempting reconnect …
+2026-06-20 12:30:34 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 12:30:34 | INFO     | __main__ | Account 1 reconnected successfully.
+2026-06-20 12:30:34 | WARNING  | __main__ | MT5 connection check failed for account 2 — attempting reconnect …
+2026-06-20 12:30:34 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 12:30:34 | INFO     | __main__ | Account 2 reconnected successfully.
+2026-06-20 12:30:34 | WARNING  | __main__ | MT5 connection check failed for account 3 — attempting reconnect …
+2026-06-20 12:30:34 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 12:30:34 | INFO     | __main__ | Account 3 reconnected successfully.
+2026-06-20 12:30:34 | WARNING  | __main__ | MT5 connection check failed for account 4 — attempting reconnect …
+2026-06-20 12:30:34 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 12:30:34 | INFO     | __main__ | Account 4 reconnected successfully.
+2026-06-20 12:31:14 | INFO     | agents.price_watcher | PriceWatcher [tick 180]: XAUUSD mid=4155.43000 zones=81 nearest_zone=0.0849% touch_threshold=0.3000%
+2026-06-20 12:31:54 | WARNING  | agents.price_watcher | PriceWatcher: failed to get price for XAUUSD: Failed to select symbol 'XAUUSD'
+2026-06-20 12:31:54 | INFO     | __main__ | KeyboardInterrupt received — shutting down gracefully …
+2026-06-20 12:31:54 | INFO     | agents.analysis_agent | AnalysisAgent stopping …
+2026-06-20 12:31:54 | INFO     | agents.analysis_agent | AnalysisAgent processing loop stopped.
+2026-06-20 12:31:54 | INFO     | agents.analysis_agent | AnalysisAgent stopping …
+2026-06-20 12:31:54 | INFO     | agents.analysis_agent | AnalysisAgent processing loop stopped.
+2026-06-20 12:31:54 | INFO     | agents.analysis_agent | AnalysisAgent stopping …
+2026-06-20 12:31:54 | INFO     | agents.analysis_agent | AnalysisAgent processing loop stopped.
+2026-06-20 12:31:54 | INFO     | agents.analysis_agent | AnalysisAgent stopping …
+2026-06-20 12:31:54 | INFO     | agents.analysis_agent | AnalysisAgent processing loop stopped.
+2026-06-20 12:31:54 | INFO     | agents.trade_monitor | TradeMonitor stopping …
+2026-06-20 12:31:54 | INFO     | agents.trade_monitor | TradeMonitor stopping …
+2026-06-20 12:31:54 | INFO     | agents.trade_monitor | TradeMonitor stopping …
+2026-06-20 12:31:54 | INFO     | agents.trade_monitor | TradeMonitor stopping …
+2026-06-20 12:31:54 | INFO     | agents.price_watcher | PriceWatcher stopping …
+2026-06-20 12:31:54 | INFO     | agents.sr_mapper | SRMapper stopping …
+2026-06-20 13:54:30 | INFO     | __main__ | ============================================================
+2026-06-20 13:54:30 | INFO     | __main__ | Trading Bot starting up (4-account mode) …
+2026-06-20 13:54:30 | INFO     | __main__ | EXECUTION_LIVE = True
+2026-06-20 13:54:30 | INFO     | __main__ | Symbols: ['XAUUSD']
+2026-06-20 13:54:30 | INFO     | __main__ | Accounts: [(1, 'BUY'), (2, 'BUY'), (3, 'SELL'), (4, 'SELL')]
+2026-06-20 13:54:30 | INFO     | __main__ | SL_USD=50  TP_USD=150  LOT_MIN=0.05  LOT_MAX=0.10  MAX_DAILY_TRADES=2
+2026-06-20 13:54:30 | INFO     | __main__ | ============================================================
+2026-06-20 13:54:30 | INFO     | __main__ | Connecting account 1 to MT5 (MetaQuotes-Demo) …
+2026-06-20 13:54:33 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 13:54:33 | INFO     | __main__ | Account 1 connected.
+2026-06-20 13:54:33 | INFO     | __main__ | Connecting account 2 to MT5 (MetaQuotes-Demo) …
+2026-06-20 13:54:33 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 13:54:33 | INFO     | __main__ | Account 2 connected.
+2026-06-20 13:54:33 | INFO     | __main__ | Connecting account 3 to MT5 (MetaQuotes-Demo) …
+2026-06-20 13:54:33 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 13:54:33 | INFO     | __main__ | Account 3 connected.
+2026-06-20 13:54:33 | INFO     | __main__ | Connecting account 4 to MT5 (MetaQuotes-Demo) …
+2026-06-20 13:54:33 | INFO     | MT5Connection | Successfully connected to MetaTrader 5 terminal
+2026-06-20 13:54:33 | INFO     | __main__ | Account 4 connected.
+2026-06-20 13:54:33 | INFO     | core.database | Database initialised at trading_bot.db
+2026-06-20 13:54:33 | INFO     | core.db_consumer | DBConsumer initialised and subscriptions wired.
+2026-06-20 13:54:34 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1 dir=BUY] initialised and subscribed to ZoneTouchEvent.
+2026-06-20 13:54:34 | INFO     | agents.risk_agent | RiskAgent[acct=1 dir=BUY] initialised and subscribed to SignalGeneratedEvent.
+2026-06-20 13:54:34 | INFO     | agents.executor | Executor[acct=1] initialised — EXECUTION_LIVE=True
+2026-06-20 13:54:34 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2 dir=BUY] initialised and subscribed to ZoneTouchEvent.
+2026-06-20 13:54:34 | INFO     | agents.risk_agent | RiskAgent[acct=2 dir=BUY] initialised and subscribed to SignalGeneratedEvent.
+2026-06-20 13:54:34 | INFO     | agents.executor | Executor[acct=2] initialised — EXECUTION_LIVE=True
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent[acct=3 dir=SELL] initialised and subscribed to ZoneTouchEvent.
+2026-06-20 13:54:35 | INFO     | agents.risk_agent | RiskAgent[acct=3 dir=SELL] initialised and subscribed to SignalGeneratedEvent.
+2026-06-20 13:54:35 | INFO     | agents.executor | Executor[acct=3] initialised — EXECUTION_LIVE=True
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent[acct=4 dir=SELL] initialised and subscribed to ZoneTouchEvent.
+2026-06-20 13:54:35 | INFO     | agents.risk_agent | RiskAgent[acct=4 dir=SELL] initialised and subscribed to SignalGeneratedEvent.
+2026-06-20 13:54:35 | INFO     | agents.executor | Executor[acct=4] initialised — EXECUTION_LIVE=True
+2026-06-20 13:54:35 | INFO     | agents.sr_mapper | SRMapper starting …
+2026-06-20 13:54:35 | INFO     | agents.sr_mapper | SRMapper starting zone scan for all symbols …
+2026-06-20 13:54:35 | INFO     | agents.price_watcher | PriceWatcher starting …
+2026-06-20 13:54:35 | INFO     | agents.price_watcher | PriceWatcher waiting for zones_ready …
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1] starting …
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent processing loop started.
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2] starting …
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent processing loop started.
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent[acct=3] starting …
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent processing loop started.
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent[acct=4] starting …
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent processing loop started.
+2026-06-20 13:54:35 | INFO     | agents.trade_monitor | TradeMonitor starting …
+2026-06-20 13:54:35 | INFO     | agents.trade_monitor | TradeMonitor starting …
+2026-06-20 13:54:35 | INFO     | agents.trade_monitor | TradeMonitor starting …
+2026-06-20 13:54:35 | INFO     | agents.trade_monitor | TradeMonitor starting …
+2026-06-20 13:54:35 | INFO     | __main__ | All threads started: SRMapper, PriceWatcher, 4×AnalysisAgent, 4×TradeMonitor. Bot is running. Press Ctrl+C to stop.
+2026-06-20 13:54:35 | INFO     | agents.sr_mapper | XAUUSD M5: published 11 zones (4 resistance, 7 support)
+2026-06-20 13:54:35 | INFO     | agents.sr_mapper | XAUUSD M15: published 13 zones (5 resistance, 8 support)
+2026-06-20 13:54:35 | INFO     | agents.sr_mapper | SRMapper zone scan complete. Published 24 zones total.
+2026-06-20 13:54:35 | INFO     | agents.price_watcher | PriceWatcher zones ready — starting tick loop for all symbols
+2026-06-20 13:54:35 | INFO     | agents.price_watcher | Zone touch: XAUUSD support zone_id=2741 tf=M5 center=4144.03000 mid=4155.43000 dist=0.2751%
+2026-06-20 13:54:35 | INFO     | agents.price_watcher | Zone touch: XAUUSD resistance zone_id=2735 tf=M5 center=4151.90667 mid=4155.43000 dist=0.0849%
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4144.03000
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4144.03000
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4144.03000
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4144.03000
+2026-06-20 13:54:35 | INFO     | agents.price_watcher | Zone touch: XAUUSD resistance zone_id=2736 tf=M5 center=4160.37500 mid=4155.43000 dist=0.1189%
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent[acct=3 dir=SELL]: support zone — skipping GPT call for XAUUSD
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent[acct=4 dir=SELL]: support zone — skipping GPT call for XAUUSD
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4151.90667
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4151.90667
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4151.90667
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4151.90667
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1 dir=BUY]: resistance zone — skipping GPT call for XAUUSD
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2 dir=BUY]: resistance zone — skipping GPT call for XAUUSD
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4160.37500
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD resistance center=4160.37500
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1 dir=BUY]: resistance zone — skipping GPT call for XAUUSD
+2026-06-20 13:54:35 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2 dir=BUY]: resistance zone — skipping GPT call for XAUUSD
+2026-06-20 13:54:37 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 1/3): Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 13:54:37 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 1/3): Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 13:54:37 | INFO     | agents.price_watcher | Zone touch: XAUUSD support zone_id=2742 tf=M5 center=4151.17000 mid=4155.43000 dist=0.1026%
+2026-06-20 13:54:37 | INFO     | agents.price_watcher | Zone touch: XAUUSD support zone_id=2743 tf=M5 center=4162.05000 mid=4155.43000 dist=0.1591%
+2026-06-20 13:54:37 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4151.17000
+2026-06-20 13:54:37 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4151.17000
+2026-06-20 13:54:37 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 13:54:37 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4162.05000
+2026-06-20 13:54:37 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 13:54:37 | INFO     | agents.analysis_agent | AnalysisAgent handling ZoneTouchEvent: XAUUSD support center=4162.05000
+2026-06-20 13:54:37 | INFO     | agents.analysis_agent | AnalysisAgent[acct=1]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 13:54:37 | INFO     | agents.analysis_agent | AnalysisAgent[acct=2]: M15 bearish at support for XAUUSD — skipping GPT call
+2026-06-20 13:54:39 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 2/3): Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 13:54:39 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 2/3): Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 13:54:42 | INFO     | __main__ | KeyboardInterrupt received — shutting down gracefully …
+2026-06-20 13:54:42 | INFO     | agents.analysis_agent | AnalysisAgent stopping …
+2026-06-20 13:54:42 | INFO     | agents.analysis_agent | AnalysisAgent processing loop stopped.
+2026-06-20 13:54:42 | INFO     | agents.analysis_agent | AnalysisAgent stopping …
+2026-06-20 13:54:42 | INFO     | agents.analysis_agent | AnalysisAgent processing loop stopped.
+2026-06-20 13:54:42 | INFO     | agents.analysis_agent | AnalysisAgent stopping …
+2026-06-20 13:54:44 | WARNING  | agents.analysis_agent | AnalysisAgent: OpenAI API call failed (attempt 3/3): Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 13:54:44 | ERROR    | agents.analysis_agent | AnalysisAgent: all 3 GPT attempts failed for symbol=XAUUSD zone_id=2735 — Last error: Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************pWoA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}
+2026-06-20 13:54:44 | INFO     | agents.analysis_agent | AnalysisAgent processing loop stopped.

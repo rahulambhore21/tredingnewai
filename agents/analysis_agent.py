@@ -313,7 +313,7 @@ class AnalysisAgent:
         # 5a. Pre-filter: skip GPT if M15 trend contradicts zone type (saves tokens)
         m15_ema21 = m15_indicators.get("ema21", 0.0)
         m15_ema50 = m15_indicators.get("ema50", 0.0)
-        if m15_ema21 and m15_ema50:
+        if m15_ema21 != 0.0 and m15_ema50 != 0.0:
             m15_bullish = m15_ema21 > m15_ema50
             if zone_type_lower == "support" and not m15_bullish:
                 logger.info(
@@ -327,6 +327,12 @@ class AnalysisAgent:
                     self._account_id, symbol_base,
                 )
                 return
+        else:
+            logger.warning(
+                "AnalysisAgent[acct=%d]: EMA pre-filter skipped for %s — zero/invalid M15 indicator values",
+                self._account_id, symbol_base,
+            )
+            return
 
         # 5b. Build prompts
         zone_dict  = {
@@ -380,7 +386,21 @@ class AnalysisAgent:
         tp          = float(gpt_response.get("tp",  0.0))
         confidence  = float(gpt_response.get("confidence", 0))
         reason      = str(gpt_response.get("reason", ""))
-        entry       = event.mid_price   # use current market price as entry
+
+        # Refresh entry price after the GPT call (which can take 2–10 s) to avoid
+        # using a stale mid_price from when the zone was touched.
+        try:
+            tick = self._client.market.get_symbol_price(symbol)
+            if tick:
+                entry = float(tick["ask"]) if direction == "BUY" else float(tick["bid"])
+            else:
+                entry = event.mid_price
+        except Exception:
+            logger.warning(
+                "AnalysisAgent[acct=%d]: get_symbol_price failed for %s — using event mid_price",
+                self._account_id, symbol_base,
+            )
+            entry = event.mid_price
 
         if sl <= 0 or tp <= 0:
             logger.warning("AnalysisAgent: invalid price levels from GPT-4o — discarding")

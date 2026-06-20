@@ -152,6 +152,7 @@ class TradeMonitor:
                 volume=trade_info["volume"],
                 entry_price=trade_info["entry_price"],
                 order_id=position_id,
+                account_id=self._account_id,
                 close_price=close_price,
                 realized_pnl=realized_pnl,
             )

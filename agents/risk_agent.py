@@ -314,7 +314,7 @@ class RiskAgent:
                 self._account_id,
             )
 
-        pnl = self._db.get_today_realized_pnl()
+        pnl = self._db.get_today_realized_pnl(self._account_id)
         logger.debug(
             "RiskAgent[acct=%d] daily P&L from DB fallback: %.2f", self._account_id, pnl
         )

@@ -476,6 +476,10 @@ class Database:
 
     # ------------------------------------------------------------------
     # Read helpers (used by agents for risk checks, zone lookups, etc.)
+    # TODO: These use _write_lock because the connection is shared across threads.
+    # WAL enables concurrent readers on separate connections — if this becomes a
+    # bottleneck (e.g. when symbols expand), switch to per-thread connections or
+    # a connection pool and drop the lock from read-only helpers.
     # ------------------------------------------------------------------
 
     def get_active_zones(self, symbol: str) -> List[sqlite3.Row]:
@@ -518,11 +522,11 @@ class Database:
             row = cur.fetchone()
             return row["created_at"] if row else None
 
-    def get_today_realized_pnl(self) -> float:
+    def get_today_realized_pnl(self, account_id: int) -> float:
         """
         Return the sum of realised P&L (in account currency, from MT5) for
-        positions closed today (UTC).  Uses the realized_pnl column populated
-        by trade_monitor / db_consumer when a position closes.
+        positions closed today (UTC) for the given account_id.
+        Uses the realized_pnl column populated by trade_monitor / db_consumer.
         """
         today = datetime.now(tz=timezone.utc).date().isoformat()
         with self._write_lock:
@@ -534,9 +538,10 @@ class Database:
                 WHERE dry_run=0
                   AND close_time IS NOT NULL
                   AND realized_pnl IS NOT NULL
+                  AND account_id = ?
                   AND DATE(close_time) = ?
                 """,
-                (today,),
+                (account_id, today),
             )
             row = cur.fetchone()
         return float(row[0]) if row and row[0] is not None else 0.0

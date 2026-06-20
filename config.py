@@ -108,16 +108,6 @@ def _load_account_configs():
 ACCOUNTS = _load_account_configs()
 
 # ---------------------------------------------------------------------------
-# MT5 connection configuration (single-account legacy / shared client)
-# ---------------------------------------------------------------------------
-
-MT5_CONFIG = {
-    "login":    int(os.getenv("MT5_LOGIN", "0")),
-    "password": os.getenv("MT5_PASSWORD", ""),
-    "server":   os.getenv("MT5_SERVER", ""),
-}
-
-# ---------------------------------------------------------------------------
 # OpenAI / GPT-4o
 # ---------------------------------------------------------------------------
 
