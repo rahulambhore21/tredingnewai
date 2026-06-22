@@ -15,13 +15,15 @@ Dry-run (EXECUTION_LIVE=False):
 """
 
 import logging
-from typing import Dict
+import time
+from typing import Dict, Optional, Tuple
 
 from metatrader_client import MT5Client
 
 import config
 from core.event_bus import EventBus
 from core.events import RiskEvaluatedEvent, TradeExecutedEvent
+from core.notifier import Notifier
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,11 @@ class Executor:
         self._client     = client
         self._bus        = bus
         self._account_id = int(account_config["account_id"])
+
+        # Duplicate-signal guard: (symbol, direction, entry) → last execution timestamp
+        self._last_signal: Optional[Tuple] = None
+        self._last_signal_time: float = 0.0
+        self._dedup_window_sec: float = 5.0
 
         self._bus.subscribe(RiskEvaluatedEvent, self._on_risk_evaluated)
         logger.info(
@@ -56,6 +63,22 @@ class Executor:
                 self._account_id, event.symbol, event.reason,
             )
             return
+
+        # Duplicate-signal guard: same (symbol, direction, entry) within 5 s → skip
+        sig_key: Tuple = (event.symbol, event.direction, event.entry)
+        now = time.time()
+        if (
+            self._last_signal == sig_key
+            and (now - self._last_signal_time) < self._dedup_window_sec
+        ):
+            logger.warning(
+                "Executor[acct=%d]: duplicate signal detected for %s %s entry=%.5f "
+                "— skipping",
+                self._account_id, event.symbol, event.direction, event.entry,
+            )
+            return
+        self._last_signal = sig_key
+        self._last_signal_time = now
 
         logger.info(
             "Executor[acct=%d] received approved signal: %s %s vol=%.2f "
@@ -152,6 +175,26 @@ class Executor:
             self._publish_failure(event, f"Could not parse position id: {exc}")
             return
 
+        if not position_id:  # 0 or None after conversion
+            try:
+                last_err = (
+                    self._client.last_error()
+                    if hasattr(self._client, "last_error")
+                    else "N/A"
+                )
+            except Exception:
+                last_err = "unavailable"
+            logger.error(
+                "Executor[acct=%d]: place_market_order returned position_id=%s for %s "
+                "— MT5 last_error: %s",
+                self._account_id, position_id, symbol, last_err,
+            )
+            self._publish_failure(
+                event,
+                f"place_market_order returned zero/None position_id; MT5 error: {last_err}",
+            )
+            return
+
         logger.info("Executor: order placed — position_id=%d fill=%.5f", position_id, fill_price)
 
         # Step 2: Attach SL/TP via modify_position
@@ -178,6 +221,22 @@ class Executor:
         except Exception as exc:
             sl_tp_error = str(exc)
             logger.exception("Executor: modify_position raised for position %d", position_id)
+
+        if not sl_tp_ok:
+            logger.error(
+                "NAKED POSITION: %s position %d has no SL/TP — manual intervention required",
+                symbol, position_id,
+            )
+            try:
+                Notifier().send(
+                    f"NAKED POSITION: {event.symbol} position {position_id} opened "
+                    f"but SL/TP attachment failed ({sl_tp_error}). "
+                    f"Manual intervention required!"
+                )
+            except Exception:
+                logger.exception(
+                    "Executor: failed to send naked position notification for %d", position_id
+                )
 
         self._bus.publish(
             TradeExecutedEvent(

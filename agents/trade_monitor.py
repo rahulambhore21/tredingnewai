@@ -49,6 +49,7 @@ class TradeMonitor:
 
     def start(self) -> None:
         logger.info("TradeMonitor starting …")
+        self._recover_open_positions()
         self._thread.start()
 
     def stop(self) -> None:
@@ -104,8 +105,6 @@ class TradeMonitor:
 
     def _check_closed_positions(self) -> None:
         with self._lock:
-            if not self._tracked:
-                return
             tracked_ids = set(self._tracked.keys())
 
         try:
@@ -121,12 +120,78 @@ class TradeMonitor:
                     open_ids = {int(x) for x in open_df[id_col].tolist()}
                     break
 
+        # Orphan detection: positions live in MT5 but not in internal tracking
+        for orphan_id in open_ids - tracked_ids:
+            logger.warning(
+                "TradeMonitor[acct=%d]: orphaned position %d detected "
+                "— not in internal tracking",
+                self._account_id, orphan_id,
+            )
+
+        if not tracked_ids:
+            return
+
+        # Closed detection: tracked positions no longer open in MT5
         closed_ids = tracked_ids - open_ids
         for position_id in closed_ids:
             with self._lock:
                 trade_info = self._tracked.pop(position_id, None)
             if trade_info:
                 self._handle_closed(position_id, trade_info)
+
+    # ------------------------------------------------------------------
+    # Startup recovery
+    # ------------------------------------------------------------------
+
+    def _recover_open_positions(self) -> None:
+        """
+        On startup, query MT5 for currently open positions and add them to
+        internal tracking so the bot can detect when they close.
+        """
+        try:
+            open_df = self._client.order.get_all_positions()
+        except Exception:
+            logger.exception(
+                "TradeMonitor[acct=%d]: failed to recover open positions on startup",
+                self._account_id,
+            )
+            return
+
+        if open_df is None or len(open_df) == 0:
+            logger.info(
+                "TradeMonitor[acct=%d]: no open positions to recover on startup",
+                self._account_id,
+            )
+            return
+
+        count = 0
+        with self._lock:
+            for _, row in open_df.iterrows():
+                pos_id = None
+                for id_col in ("id", "ticket"):
+                    if id_col in row.index:
+                        try:
+                            pos_id = int(row[id_col])
+                        except (TypeError, ValueError):
+                            pass
+                        break
+                if pos_id is None or pos_id in self._tracked:
+                    continue
+
+                pos_type = row.get("type", 0)
+                direction = "BUY" if pos_type in (0, "BUY", "buy") else "SELL"
+                self._tracked[pos_id] = {
+                    "symbol":      str(row.get("symbol", "UNKNOWN")),
+                    "direction":   direction,
+                    "volume":      float(row.get("volume", 0.0)),
+                    "entry_price": float(row.get("price_open", 0.0)),
+                }
+                count += 1
+
+        logger.info(
+            "TradeMonitor[acct=%d]: recovered %d open positions from MT5 on startup",
+            self._account_id, count,
+        )
 
     # ------------------------------------------------------------------
     # Handle a closed position

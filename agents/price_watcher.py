@@ -6,6 +6,7 @@ TICK_INTERVAL_SEC in a single loop. Emits ZoneTouchEvent(symbol) when
 the live price enters a stored S/R zone.
 """
 
+import collections
 import logging
 import threading
 import time
@@ -53,6 +54,11 @@ class PriceWatcher:
         self._price_fail_log_interval = 300.0
         self._tick_count: Dict[str, int] = {}
         self._tick_log_interval = 30  # log an INFO summary every N ticks
+
+        self._stale_prices: Dict[str, collections.deque] = {}
+        self._stale_count_threshold = 10  # warn after N identical mid_prices in a row
+        self._last_tick_time: Dict[str, float] = {}
+        self._silence_threshold_sec = 60.0  # ERROR if no valid tick for this long
 
         self._stop_event = threading.Event()
         self._thread = threading.Thread(
@@ -123,11 +129,43 @@ class PriceWatcher:
                 self._price_fail_last_logged[symbol_base] = now
             return
 
+        if tick is None:
+            logger.warning(
+                "PriceWatcher: get_symbol_price returned None for %s — skipping tick", symbol
+            )
+            return
+
         bid = tick.get("bid", 0.0)
         ask = tick.get("ask", 0.0)
         if not bid or not ask:
             return
         mid = (bid + ask) / 2.0
+
+        # Silence check: warn if no valid tick received for too long
+        now_ts = time.time()
+        last_seen = self._last_tick_time.get(symbol_base)
+        if last_seen is not None and (now_ts - last_seen) > self._silence_threshold_sec:
+            logger.error(
+                "PriceWatcher: tick feed silent for %s — possible connection issue "
+                "(%.0fs since last tick)",
+                symbol_base, now_ts - last_seen,
+            )
+        self._last_tick_time[symbol_base] = now_ts
+
+        # Staleness check: warn when mid_price is unchanged for N consecutive ticks
+        price_hist = self._stale_prices.setdefault(
+            symbol_base, collections.deque(maxlen=self._stale_count_threshold)
+        )
+        price_hist.append(mid)
+        if (
+            len(price_hist) == self._stale_count_threshold
+            and len(set(price_hist)) == 1
+        ):
+            logger.warning(
+                "PriceWatcher: stale tick detected for %s — price unchanged (%.5f) "
+                "for %d consecutive ticks",
+                symbol_base, mid, self._stale_count_threshold,
+            )
 
         try:
             zones = self._db.get_active_zones(symbol_base)
@@ -187,8 +225,6 @@ class PriceWatcher:
             else:
                 cluster_centers.append(center)
                 clusters.append([z])
-
-        now_ts = time.time()
 
         def _selection_key(z):
             cooldown_key = (symbol_base, z["id"])

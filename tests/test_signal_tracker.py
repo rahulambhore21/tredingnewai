@@ -20,7 +20,7 @@ class TestSignalTracker:
         should_pause must return False when the rolling win rate is above the
         40% pause threshold, even after the window is fully populated.
         """
-        tracker = SignalTracker(window=WINDOW, pause_threshold=THRESHOLD)
+        tracker = SignalTracker(window=WINDOW, pause_threshold=THRESHOLD, state_file=None)
         # 7 wins + 3 losses = 70% — well above the 40% threshold
         for _ in range(7):
             tracker.record_result("sig", True)
@@ -37,7 +37,7 @@ class TestSignalTracker:
         should_pause must return True once the window fills and the rolling
         win rate falls below the 40% pause threshold.
         """
-        tracker = SignalTracker(window=WINDOW, pause_threshold=THRESHOLD)
+        tracker = SignalTracker(window=WINDOW, pause_threshold=THRESHOLD, state_file=None)
         # 3 wins + 7 losses = 30% — below the 40% threshold
         for _ in range(3):
             tracker.record_result("sig", True)
@@ -54,7 +54,7 @@ class TestSignalTracker:
         should_pause must remain False during warm-up (fewer results than window),
         even if all recorded results are losses.
         """
-        tracker = SignalTracker(window=WINDOW, pause_threshold=THRESHOLD)
+        tracker = SignalTracker(window=WINDOW, pause_threshold=THRESHOLD, state_file=None)
         for _ in range(WINDOW - 1):  # one short of a full window
             tracker.record_result("sig", False)
 
@@ -67,7 +67,7 @@ class TestSignalTracker:
         record_result() must accumulate wins and losses correctly so that
         win_rate reflects the rolling proportion.
         """
-        tracker = SignalTracker(window=WINDOW, pause_threshold=THRESHOLD)
+        tracker = SignalTracker(window=WINDOW, pause_threshold=THRESHOLD, state_file=None)
         tracker.record_result("s1", True)   # win
         tracker.record_result("s2", False)  # loss
         tracker.record_result("s3", True)   # win
@@ -79,19 +79,21 @@ class TestSignalTracker:
 
     def test_new_instance_resets_to_default_state(self):
         """
-        After a bot restart (new SignalTracker instance), state must reset:
-        empty deque, win_rate=1.0 (no-data default), should_pause=False.
+        When state_file=None (persistence disabled), a new SignalTracker instance
+        starts with a blank slate: empty deque, win_rate=1.0, should_pause=False.
+        This tests the in-memory-only code path (no disk I/O).
         """
-        tracker1 = SignalTracker(window=WINDOW, pause_threshold=THRESHOLD)
+        tracker1 = SignalTracker(window=WINDOW, pause_threshold=THRESHOLD, state_file=None)
         for _ in range(WINDOW):
             tracker1.record_result("sig", False)
         assert tracker1.should_pause is True, "Pre-condition: tracker1 should be paused"
 
-        # Simulate restart with a fresh instance
-        tracker2 = SignalTracker(window=WINDOW, pause_threshold=THRESHOLD)
+        # Simulate restart with a fresh instance (state_file=None → no disk load)
+        tracker2 = SignalTracker(window=WINDOW, pause_threshold=THRESHOLD, state_file=None)
         assert tracker2.should_pause is False, (
-            "New instance should start with should_pause=False (warm-up mode)."
+            "New instance with state_file=None should start with should_pause=False."
         )
         assert tracker2.win_rate == pytest.approx(1.0), (
-            "New instance should return win_rate=1.0 when no results recorded yet."
+            "New instance with state_file=None should return win_rate=1.0 "
+            "when no results recorded yet."
         )

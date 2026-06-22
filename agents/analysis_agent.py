@@ -23,7 +23,7 @@ import threading
 import time
 from typing import Dict, List, Optional, Tuple
 
-from openai import OpenAI
+from openai import OpenAI, APITimeoutError as _OAITimeout, RateLimitError as _OAIRateLimit
 
 from metatrader_client import MT5Client
 
@@ -458,9 +458,11 @@ class AnalysisAgent:
         zone_id: Optional[int] = None,
     ) -> Optional[Dict]:
         """
-        Call GPT-4o with the system + user prompt, parse the JSON response.
-        Retries up to 2 times on network errors or JSON parse failures.
-        Returns None after all retries are exhausted.
+        Call GPT with the system + user prompt, parse JSON, validate required fields.
+
+        Specific OpenAI errors (timeout, rate-limit) return None immediately.
+        Generic connectivity errors are retried up to 2× with exponential backoff.
+        Returns None on any unrecoverable failure.
         """
         max_retries = 2
         backoff_sec = 2.0
@@ -472,6 +474,7 @@ class AnalysisAgent:
                     model=config.OPENAI_MODEL,
                     response_format={"type": "json_object"},
                     max_tokens=config.OPENAI_MAX_TOKENS,
+                    timeout=30,
                     messages=[
                         {"role": "system", "content": _SYSTEM_PROMPT},
                         {"role": "user",   "content": user_prompt},
@@ -481,19 +484,65 @@ class AnalysisAgent:
                 if not raw_content:
                     logger.warning("AnalysisAgent: GPT-4o returned empty content")
                     return None
+
                 parsed = json.loads(raw_content)
+
+                # Validate required fields exist and are not None
+                for field in ("direction", "sl", "tp", "confidence"):
+                    if parsed.get(field) is None:
+                        logger.warning(
+                            "AnalysisAgent: GPT response missing required field '%s' "
+                            "— discarding (symbol=%s zone_id=%s)",
+                            field, symbol, zone_id,
+                        )
+                        return None
+
+                # Validate numeric fields
+                for field in ("sl", "tp", "confidence"):
+                    try:
+                        float(parsed[field])
+                    except (TypeError, ValueError):
+                        logger.warning(
+                            "AnalysisAgent: GPT response field '%s' is not numeric (%r) "
+                            "— discarding (symbol=%s zone_id=%s)",
+                            field, parsed[field], symbol, zone_id,
+                        )
+                        return None
+
                 logger.debug("AnalysisAgent GPT response: %s", parsed)
                 return parsed
+
             except json.JSONDecodeError as exc:
                 logger.warning(
                     "AnalysisAgent: GPT-4o JSON parse error — not retrying: %s", exc
                 )
                 return None
+
+            except _OAITimeout:
+                logger.warning(
+                    "AnalysisAgent: GPT call timed out (>30s) for symbol=%s zone_id=%s "
+                    "— dropping signal",
+                    symbol, zone_id,
+                )
+                return None
+
+            except _OAIRateLimit as exc:
+                retry_after = getattr(exc, "retry_after", None)
+                logger.warning(
+                    "AnalysisAgent: GPT rate limited (429) for symbol=%s zone_id=%s%s "
+                    "— dropping signal",
+                    symbol, zone_id,
+                    f" — retry_after={retry_after}s" if retry_after else "",
+                )
+                return None
+
             except Exception as exc:
                 last_exc = exc
-                logger.warning(
-                    "AnalysisAgent: OpenAI API call failed (attempt %d/%d): %s",
-                    attempt + 1, max_retries + 1, exc,
+                logger.error(
+                    "AnalysisAgent: OpenAI exception (attempt %d/%d) for symbol=%s "
+                    "zone_id=%s: %s",
+                    attempt + 1, max_retries + 1, symbol, zone_id, exc,
+                    exc_info=True,
                 )
 
             if attempt < max_retries:
@@ -501,7 +550,8 @@ class AnalysisAgent:
                 time.sleep(wait)
 
         logger.error(
-            "AnalysisAgent: all %d GPT attempts failed for symbol=%s zone_id=%s — Last error: %s",
+            "AnalysisAgent: all %d GPT attempts failed for symbol=%s zone_id=%s "
+            "— last error: %s",
             max_retries + 1, symbol, zone_id, last_exc,
         )
         return None
