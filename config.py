@@ -38,11 +38,17 @@ def is_trading_hours() -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Magic numbers (one per account, used to filter positions in risk checks)
+# ---------------------------------------------------------------------------
+
+MAGIC_BASE = 10000  # account N uses magic MAGIC_BASE + N (10001 … 10004)
+
+# ---------------------------------------------------------------------------
 # Risk parameters
 # ---------------------------------------------------------------------------
 
 MIN_RR = 2
-MAX_OPEN_TRADES = 1
+MAX_OPEN_TRADES = int(os.getenv("MAX_OPEN_TRADES", "1"))
 CORRELATED_PAIRS = [("EURUSD", "USDJPY")]
 
 DAILY_PROFIT_TARGET_USD = 100.0
@@ -82,6 +88,17 @@ SWING_LOOKBACK    = 5
 CLUSTER_TOLERANCE = 0.0015
 
 # ---------------------------------------------------------------------------
+# MT5 terminal paths (one installation per account)
+# ---------------------------------------------------------------------------
+
+MT5_TERMINAL_PATHS = {
+    1: os.getenv("MT5_PATH_1", r"C:\Program Files\MetaTrader 5\terminal64.exe"),
+    2: os.getenv("MT5_PATH_2", r"C:\Program Files\MT5 1\terminal64.exe"),
+    3: os.getenv("MT5_PATH_3", r"C:\Program Files\MT5 2\terminal64.exe"),
+    4: os.getenv("MT5_PATH_4", r"C:\Program Files\MT5 3\terminal64.exe"),
+}
+
+# ---------------------------------------------------------------------------
 # 4-account configuration
 # ---------------------------------------------------------------------------
 
@@ -96,11 +113,12 @@ def _load_account_configs():
         except ValueError:
             continue
         accounts.append({
-            "account_id": i,
-            "login":      login_int,
-            "password":   os.getenv(f"MT5_PASSWORD_{i}", ""),
-            "server":     os.getenv(f"MT5_SERVER_{i}", ""),
-            "direction":  os.getenv(f"MT5_DIRECTION_{i}", "BUY").upper(),
+            "account_id":    i,
+            "login":         login_int,
+            "password":      os.getenv(f"MT5_PASSWORD_{i}", ""),
+            "server":        os.getenv(f"MT5_SERVER_{i}", ""),
+            "direction":     os.getenv(f"MT5_DIRECTION_{i}", "BUY").upper(),
+            "terminal_path": MT5_TERMINAL_PATHS.get(i, ""),
         })
     return accounts
 

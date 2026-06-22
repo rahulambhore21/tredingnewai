@@ -18,6 +18,7 @@ from metatrader_client import MT5Client
 
 from core.event_bus import EventBus
 from core.events import TradeClosedEvent, TradeExecutedEvent
+from core.signal_tracker import SignalTracker
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +30,17 @@ class TradeMonitor:
     Per-account watcher that fires TradeClosedEvent when bot-placed positions close.
     """
 
-    def __init__(self, client: MT5Client, bus: EventBus, account_id: int = 0) -> None:
-        self._client     = client
-        self._bus        = bus
-        self._account_id = account_id
+    def __init__(
+        self,
+        client: MT5Client,
+        bus: EventBus,
+        account_id: int = 0,
+        signal_tracker: Optional[SignalTracker] = None,
+    ) -> None:
+        self._client         = client
+        self._bus            = bus
+        self._account_id     = account_id
+        self._signal_tracker = signal_tracker
 
         self._tracked: Dict[int, Dict] = {}
         self._lock = threading.Lock()
@@ -120,11 +128,12 @@ class TradeMonitor:
                     open_ids = {int(x) for x in open_df[id_col].tolist()}
                     break
 
-        # Orphan detection: positions live in MT5 but not in internal tracking
+        # Orphan detection: positions live in MT5 but not in internal tracking.
+        # These are commonly manually opened positions — log at DEBUG to avoid noise.
         for orphan_id in open_ids - tracked_ids:
-            logger.warning(
-                "TradeMonitor[acct=%d]: orphaned position %d detected "
-                "— not in internal tracking",
+            logger.debug(
+                "TradeMonitor[acct=%d]: position %d in MT5 not tracked by bot "
+                "(manual or pre-existing trade)",
                 self._account_id, orphan_id,
             )
 
@@ -209,6 +218,9 @@ class TradeMonitor:
             f"{close_price:.5f}" if close_price else "unknown",
             realized_pnl,
         )
+
+        if self._signal_tracker is not None:
+            self._signal_tracker.record_result(position_id, won=realized_pnl > 0)
 
         self._bus.publish(
             TradeClosedEvent(

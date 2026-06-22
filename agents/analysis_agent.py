@@ -31,6 +31,7 @@ import config
 from core.database import Database
 from core.event_bus import EventBus
 from core.events import SignalGeneratedEvent, ZoneTouchEvent
+from core.signal_tracker import SignalTracker
 from indicators.calculator import compute_all_indicators, sort_candles_ascending
 from prompts.user_template import build_user_prompt
 
@@ -69,13 +70,15 @@ class AnalysisAgent:
         db: Database,
         account_config: Dict,
         openai_client: Optional[OpenAI] = None,
+        signal_tracker: Optional[SignalTracker] = None,
     ) -> None:
-        self._client        = client
-        self._bus           = bus
-        self._db            = db
-        self._account_id    = int(account_config["account_id"])
-        self._direction     = str(account_config["direction"]).upper()
-        self._oai           = openai_client or OpenAI(api_key=config.OPENAI_API_KEY)
+        self._client         = client
+        self._bus            = bus
+        self._db             = db
+        self._account_id     = int(account_config["account_id"])
+        self._direction      = str(account_config["direction"]).upper()
+        self._oai            = openai_client or OpenAI(api_key=config.OPENAI_API_KEY)
+        self._signal_tracker = signal_tracker
 
         self._last_analysis: Dict[Tuple[str, int], float] = {}
         self._analysis_cooldown_sec = 30.0
@@ -230,6 +233,18 @@ class AnalysisAgent:
             )
             return
 
+        # 0b-pre. Win-rate gate: pause new signals when recent win rate is too low
+        if self._signal_tracker is not None and self._signal_tracker.should_pause:
+            logger.info(
+                "AnalysisAgent[acct=%d]: SignalTracker paused (win_rate=%.0f%% < %.0f%%) "
+                "— skipping GPT call for %s",
+                self._account_id,
+                self._signal_tracker.win_rate * 100,
+                config.SIGNAL_PAUSE_THRESHOLD * 100,
+                symbol_base,
+            )
+            return
+
         # 0b. Direction pre-filter: skip GPT when zone type can't produce account direction.
         # support zones → BUY opportunity; resistance zones → SELL opportunity.
         zone_type_lower = event.zone_type.lower()
@@ -246,13 +261,15 @@ class AnalysisAgent:
             )
             return
 
-        # 0c. Skip GPT call if max open trades already reached (account-wide MT5 check)
+        # 0c. Skip GPT call if max open trades already reached.
+        # Use the DB's per-account trade records instead of get_all_positions()
+        # to avoid the MT5 library sharing one terminal session across all clients
+        # (which would make every account see account-1's positions).
         try:
-            positions = self._client.order.get_all_positions()
-            open_count = 0 if positions is None else len(positions)
+            open_count = self._db.get_open_trade_count(self._account_id)
         except Exception:
             logger.warning(
-                "AnalysisAgent[acct=%d]: could not fetch open positions — skipping %s",
+                "AnalysisAgent[acct=%d]: could not fetch open trade count — skipping %s",
                 self._account_id, symbol_base,
             )
             return
@@ -329,7 +346,8 @@ class AnalysisAgent:
                 return
         else:
             logger.warning(
-                "AnalysisAgent[acct=%d]: EMA pre-filter skipped for %s — zero/invalid M15 indicator values",
+                "AnalysisAgent[acct=%d]: dropping signal for %s — zero/invalid M15 EMA values "
+                "(insufficient candle data for indicator calculation)",
                 self._account_id, symbol_base,
             )
             return

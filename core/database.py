@@ -144,6 +144,19 @@ class Database:
             )
             """,
 
+            # Manual daily trade count resets.
+            # One row per (account_id, date) records that the MAX_DAILY_TRADES cap
+            # was deliberately cleared for that day.  get_daily_trade_count() checks
+            # this table first and returns 0 when a reset row is present.
+            """
+            CREATE TABLE IF NOT EXISTS daily_count_resets (
+                account_id  INTEGER NOT NULL,
+                reset_date  TEXT    NOT NULL,   -- YYYY-MM-DD UTC
+                reset_at    TEXT    NOT NULL,   -- full ISO-8601 timestamp
+                PRIMARY KEY (account_id, reset_date)
+            )
+            """,
+
             # Denormalized trade lifecycle — one row per signal, updated as the
             # trade progresses.  Used for strategy validation and analytics without
             # requiring multi-table JOINs.
@@ -185,10 +198,11 @@ class Database:
     def _migrate_tables(self) -> None:
         """Add columns introduced after the initial schema (idempotent)."""
         new_columns = [
-            ("trades", "close_price",  "REAL"),
-            ("trades", "close_time",   "TEXT"),
-            ("trades", "realized_pnl", "REAL"),
-            ("trades", "account_id",   "INTEGER"),
+            ("trades",          "close_price",  "REAL"),
+            ("trades",          "close_time",   "TEXT"),
+            ("trades",          "realized_pnl", "REAL"),
+            ("trades",          "account_id",   "INTEGER"),
+            ("validation_log",  "account_id",   "INTEGER"),
         ]
         with self._write_lock:
             cur = self._conn.cursor()
@@ -408,6 +422,7 @@ class Database:
         stop_loss: Optional[float],
         take_profit: Optional[float],
         signal_id: Optional[int] = None,
+        account_id: Optional[int] = None,
     ) -> int:
         """Open a new validation_log row at signal-generation time. Returns the new id."""
         return self._execute_write(
@@ -415,13 +430,28 @@ class Database:
             INSERT INTO validation_log
                 (symbol, timeframe, zone_id, zone_type, zone_strength,
                  ai_decision, confidence, entry, stop_loss, take_profit,
-                 trade_result, signal_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
+                 trade_result, signal_id, account_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?)
             """,
             (symbol, timeframe, zone_id, zone_type, zone_strength,
              ai_decision, confidence, entry, stop_loss, take_profit,
-             signal_id, self._now_iso()),
+             signal_id, account_id, self._now_iso()),
         )
+
+    def get_validation_log_id_by_order(self, order_id: int) -> Optional[int]:
+        """
+        Look up a validation_log row by the MT5 order/position id set at execution time.
+        Returns the row id, or None if not found.  Used by db_consumer to finalize
+        rows for positions that were recovered on startup (no in-memory val_id).
+        """
+        with self._write_lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "SELECT id FROM validation_log WHERE order_id=? ORDER BY created_at DESC LIMIT 1",
+                (order_id,),
+            )
+            row = cur.fetchone()
+        return int(row["id"]) if row else None
 
     def update_validation_log_risk(
         self,
@@ -546,15 +576,69 @@ class Database:
             row = cur.fetchone()
         return float(row[0]) if row and row[0] is not None else 0.0
 
+    def get_open_trades(self, account_id: int) -> list:
+        """
+        Return order_ids of all DB trades for *account_id* that have no
+        close_time (i.e. the bot never saw them close).  Used by startup
+        reconciliation to detect trades closed in MT5 while the bot was offline.
+        """
+        with self._write_lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                SELECT order_id
+                FROM trades
+                WHERE dry_run=0
+                  AND success=1
+                  AND account_id=?
+                  AND close_time IS NULL
+                  AND order_id IS NOT NULL
+                """,
+                (account_id,),
+            )
+            rows = cur.fetchall()
+        return [row[0] for row in rows]
+
+    def get_open_trade_count(self, account_id: int) -> int:
+        """
+        Count positions opened by the bot for *account_id* that have not yet
+        closed (close_time IS NULL).  Used by AnalysisAgent instead of a raw
+        MT5 get_all_positions() call so each account only counts its own trades.
+        """
+        with self._write_lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                SELECT COUNT(*)
+                FROM trades
+                WHERE dry_run=0
+                  AND success=1
+                  AND account_id=?
+                  AND close_time IS NULL
+                """,
+                (account_id,),
+            )
+            row = cur.fetchone()
+        return int(row[0]) if row else 0
+
     def get_daily_trade_count(self, account_id: int, date: Optional[str] = None) -> int:
         """
         Return the number of successfully executed (non-dry-run) trades for
         *account_id* on *date* (UTC ISO date string, defaults to today).
+
+        Returns 0 immediately if a manual reset exists for this account/date
+        (written by reset_daily_trade_count).
         """
         if date is None:
             date = datetime.now(tz=timezone.utc).date().isoformat()
         with self._write_lock:
             cur = self._conn.cursor()
+            cur.execute(
+                "SELECT 1 FROM daily_count_resets WHERE account_id=? AND reset_date=?",
+                (account_id, date),
+            )
+            if cur.fetchone():
+                return 0
             cur.execute(
                 """
                 SELECT COUNT(*)
@@ -569,27 +653,62 @@ class Database:
             row = cur.fetchone()
         return int(row[0]) if row else 0
 
-    def get_week_realized_pnl(self) -> float:
+    def reset_daily_trade_count(self, account_id: int, date: Optional[str] = None) -> None:
+        """
+        Record a manual reset for *account_id* on *date* (defaults to today UTC).
+        After this, get_daily_trade_count returns 0 for that account/date,
+        allowing new trades even after MAX_DAILY_TRADES has been reached.
+        Idempotent — calling it twice on the same day is safe.
+        """
+        if date is None:
+            date = datetime.now(tz=timezone.utc).date().isoformat()
+        self._execute_write(
+            """
+            INSERT OR REPLACE INTO daily_count_resets (account_id, reset_date, reset_at)
+            VALUES (?, ?, ?)
+            """,
+            (account_id, date, self._now_iso()),
+        )
+        logger.info(
+            "Daily trade count reset for account_id=%d date=%s", account_id, date
+        )
+
+    def get_week_realized_pnl(self, account_id: Optional[int] = None) -> float:
         """
         Return the sum of realised P&L (in account currency, from MT5) for
         positions closed this ISO week (Monday–UTC).  Uses the realized_pnl
         column populated by trade_monitor / db_consumer when a position closes.
+        Pass account_id to restrict to one account; omit for all-account aggregate.
         """
         now = datetime.now(tz=timezone.utc)
         week_start = (now - timedelta(days=now.weekday())).date().isoformat()
         with self._write_lock:
             cur = self._conn.cursor()
-            cur.execute(
-                """
-                SELECT COALESCE(SUM(realized_pnl), 0.0)
-                FROM trades
-                WHERE dry_run=0
-                  AND close_time IS NOT NULL
-                  AND realized_pnl IS NOT NULL
-                  AND DATE(close_time) >= ?
-                """,
-                (week_start,),
-            )
+            if account_id is not None:
+                cur.execute(
+                    """
+                    SELECT COALESCE(SUM(realized_pnl), 0.0)
+                    FROM trades
+                    WHERE dry_run=0
+                      AND close_time IS NOT NULL
+                      AND realized_pnl IS NOT NULL
+                      AND account_id = ?
+                      AND DATE(close_time) >= ?
+                    """,
+                    (account_id, week_start),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT COALESCE(SUM(realized_pnl), 0.0)
+                    FROM trades
+                    WHERE dry_run=0
+                      AND close_time IS NOT NULL
+                      AND realized_pnl IS NOT NULL
+                      AND DATE(close_time) >= ?
+                    """,
+                    (week_start,),
+                )
             row = cur.fetchone()
         return float(row[0]) if row and row[0] is not None else 0.0
 

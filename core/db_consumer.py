@@ -165,6 +165,7 @@ class DBConsumer:
                 stop_loss=event.stop_loss,
                 take_profit=event.take_profit,
                 signal_id=signal_id,
+                account_id=event.account_id,
             )
             self._last_validation_id[acct_key] = val_id
 
@@ -266,8 +267,13 @@ class DBConsumer:
                 close_price=event.close_price,
                 realized_pnl=event.realized_pnl,
             )
-            acct_key = (event.symbol, event.account_id)
-            val_id = self._last_validation_id.get(acct_key)
+            # Look up validation_log row by order_id so that positions recovered
+            # on startup (not in _last_validation_id) are also finalized correctly.
+            val_id = self._db.get_validation_log_id_by_order(event.order_id)
+            if val_id is None:
+                # Fallback: use in-memory pointer for current-session trades whose
+                # order_id was never written to validation_log (e.g. crash before update).
+                val_id = self._last_validation_id.get((event.symbol, event.account_id))
             if val_id is not None:
                 closed_at = datetime.now(tz=timezone.utc).isoformat()
                 trade_result = "WIN" if event.realized_pnl > 0 else ("LOSS" if event.realized_pnl < 0 else "BREAKEVEN")
@@ -277,6 +283,11 @@ class DBConsumer:
                     realized_pnl=event.realized_pnl,
                     trade_result=trade_result,
                     closed_at=closed_at,
+                )
+            else:
+                logger.warning(
+                    "DBConsumer: no validation_log row found for order_id=%s — close not recorded",
+                    event.order_id,
                 )
             self._db.insert_event_log(
                 event_type=event.event_type,
