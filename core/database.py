@@ -223,6 +223,21 @@ class Database:
         """Return the current UTC time as an ISO-8601 string."""
         return datetime.now(tz=timezone.utc).isoformat()
 
+    @staticmethod
+    def _get_trading_date() -> str:
+        """
+        Return today's 'trading date' adjusted for the broker's daily reset hour.
+
+        Brokers often reset their session at e.g. 22:00 UTC (5 pm NY time).
+        Subtracting TRADING_DAY_RESET_UTC_HOUR shifts the clock so that times
+        after the reset map to the next calendar day, keeping daily P&L and
+        trade counts consistent with the broker's own daily buckets.
+        Default 0 = UTC midnight (no adjustment).
+        """
+        now = datetime.now(tz=timezone.utc)
+        adjusted = now - timedelta(hours=config.TRADING_DAY_RESET_UTC_HOUR)
+        return adjusted.date().isoformat()
+
     def _execute_write(self, sql: str, params: Tuple = ()) -> int:
         """
         Execute a single INSERT/UPDATE/DELETE under the write lock.
@@ -555,10 +570,10 @@ class Database:
     def get_today_realized_pnl(self, account_id: int) -> float:
         """
         Return the sum of realised P&L (in account currency, from MT5) for
-        positions closed today (UTC) for the given account_id.
+        positions closed on the current trading day for the given account_id.
         Uses the realized_pnl column populated by trade_monitor / db_consumer.
         """
-        today = datetime.now(tz=timezone.utc).date().isoformat()
+        today = self._get_trading_date()
         with self._write_lock:
             cur = self._conn.cursor()
             cur.execute(
@@ -624,13 +639,14 @@ class Database:
     def get_daily_trade_count(self, account_id: int, date: Optional[str] = None) -> int:
         """
         Return the number of successfully executed (non-dry-run) trades for
-        *account_id* on *date* (UTC ISO date string, defaults to today).
+        *account_id* on *date* (trading-day ISO date string, defaults to today).
 
-        Returns 0 immediately if a manual reset exists for this account/date
-        (written by reset_daily_trade_count).
+        The trading date is adjusted by TRADING_DAY_RESET_UTC_HOUR so that
+        the daily cap resets at the broker's session boundary, not UTC midnight.
+        Returns 0 immediately if a manual reset exists for this account/date.
         """
         if date is None:
-            date = datetime.now(tz=timezone.utc).date().isoformat()
+            date = self._get_trading_date()
         with self._write_lock:
             cur = self._conn.cursor()
             cur.execute(
@@ -655,13 +671,13 @@ class Database:
 
     def reset_daily_trade_count(self, account_id: int, date: Optional[str] = None) -> None:
         """
-        Record a manual reset for *account_id* on *date* (defaults to today UTC).
+        Record a manual reset for *account_id* on *date* (defaults to today trading date).
         After this, get_daily_trade_count returns 0 for that account/date,
         allowing new trades even after MAX_DAILY_TRADES has been reached.
         Idempotent — calling it twice on the same day is safe.
         """
         if date is None:
-            date = datetime.now(tz=timezone.utc).date().isoformat()
+            date = self._get_trading_date()
         self._execute_write(
             """
             INSERT OR REPLACE INTO daily_count_resets (account_id, reset_date, reset_at)

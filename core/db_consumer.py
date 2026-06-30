@@ -98,17 +98,18 @@ class DBConsumer:
     # ------------------------------------------------------------------
 
     def _on_zones_refreshed(self, event: ZonesRefreshedEvent) -> None:
+        # Zone deactivation is handled directly by SRMapper before the scan
+        # to prevent old and new zones from coexisting in the DB.
+        # This handler is kept for the audit log only.
         try:
-            cutoff = event.zones_deactivated_before.isoformat()
-            self._db.deactivate_zones_before(event.symbol, event.timeframe, cutoff)
             self._db.insert_event_log(
                 event_type=event.event_type,
                 symbol=event.symbol,
                 payload=_to_json(event),
             )
             logger.debug(
-                "Zones deactivated for %s %s before %s",
-                event.symbol, event.timeframe, cutoff,
+                "ZonesRefreshed audit logged for %s %s",
+                event.symbol, event.timeframe,
             )
         except Exception:
             logger.exception("DBConsumer._on_zones_refreshed failed for %s", event)

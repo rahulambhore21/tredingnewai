@@ -204,12 +204,15 @@ def find_swing_highs_lows(
         bar_high = df["high"].iloc[i]
         bar_low  = df["low"].iloc[i]
 
-        # Swing high: this bar's high is the maximum in the window
-        if bar_high == window_highs.max() and (window_highs < bar_high).sum() >= lookback:
+        # Swing high: this bar's high must be strictly greater than ALL
+        # surrounding bars (2*lookback neighbours). Requiring only >= lookback
+        # allows flat tops where some neighbours equal the high, producing
+        # false S/R zones. Requiring >= 2*lookback ensures all others are lower.
+        if bar_high == window_highs.max() and (window_highs < bar_high).sum() >= 2 * lookback:
             highs.append(float(bar_high))
 
-        # Swing low: this bar's low is the minimum in the window
-        if bar_low == window_lows.min() and (window_lows > bar_low).sum() >= lookback:
+        # Swing low: symmetric condition — strictly less than all neighbours.
+        if bar_low == window_lows.min() and (window_lows > bar_low).sum() >= 2 * lookback:
             lows.append(float(bar_low))
 
     return highs, lows
@@ -309,24 +312,42 @@ def compute_all_indicators(df: pd.DataFrame) -> Dict:
 
     Returns:
         Dict with keys: ema21, ema50, rsi14, macd_line, macd_signal, macd_hist.
-        All values are Python floats. Returns zeros for any that fail (logged).
+        Each indicator is computed independently so a MACD failure does not
+        zero out the EMA values that the trend filter depends on.
     """
     result: Dict = {
         "ema21": 0.0, "ema50": 0.0,
         "rsi14": 50.0,
         "macd_line": 0.0, "macd_signal": 0.0, "macd_hist": 0.0,
     }
-    try:
-        asc = sort_candles_ascending(df)
-        close = asc["close"]
 
-        result["ema21"]       = float(ema(close, 21).iloc[-1])
-        result["ema50"]       = float(ema(close, 50).iloc[-1])
-        result["rsi14"]       = float(rsi(close, 14).iloc[-1])
+    try:
+        asc   = sort_candles_ascending(df)
+        close = asc["close"]
+    except Exception:
+        logger.exception("compute_all_indicators: failed to sort/extract close — returning defaults")
+        return result
+
+    # EMA — critical: 0.0 triggers the early-return guard in AnalysisAgent
+    try:
+        result["ema21"] = float(ema(close, 21).iloc[-1])
+        result["ema50"] = float(ema(close, 50).iloc[-1])
+    except Exception:
+        logger.exception("compute_all_indicators: EMA computation failed")
+
+    # RSI — non-critical; GPT receives neutral 50.0 default on failure
+    try:
+        result["rsi14"] = float(rsi(close, 14).iloc[-1])
+    except Exception:
+        logger.exception("compute_all_indicators: RSI computation failed")
+
+    # MACD — non-critical; GPT receives 0.0 defaults on failure
+    try:
         ml, sl, hist          = macd(close)
         result["macd_line"]   = float(ml.iloc[-1])
         result["macd_signal"] = float(sl.iloc[-1])
         result["macd_hist"]   = float(hist.iloc[-1])
     except Exception:
-        logger.exception("compute_all_indicators failed — returning defaults")
+        logger.exception("compute_all_indicators: MACD computation failed")
+
     return result

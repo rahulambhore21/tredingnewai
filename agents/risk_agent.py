@@ -106,21 +106,12 @@ class RiskAgent:
             failures.append("Daily count check error")
 
         # Check 3: Open trades < MAX_OPEN_TRADES
+        # Use the DB (same source as AnalysisAgent pre-filter) so both layers
+        # agree and manual MT5 positions do not block the bot's own trades.
         max_trades_ok = False
-        open_bases: Set[str] = set()
+        open_bases: Set[str] = set()   # used for correlated-pair check below
         try:
-            positions_df = self._client.order.get_all_positions()
-            open_count = len(positions_df) if positions_df is not None else 0
-
-            if positions_df is not None and len(positions_df) > 0:
-                for sym_col in ("symbol", "Symbol"):
-                    if sym_col in positions_df.columns:
-                        open_bases = {
-                            s.replace(config.SYMBOL_SUFFIX, "").upper()
-                            for s in positions_df[sym_col].tolist()
-                        }
-                        break
-
+            open_count = self._db.get_open_trade_count(self._account_id)
             max_trades_ok = open_count < config.MAX_OPEN_TRADES
             if not max_trades_ok:
                 failures.append(
@@ -169,9 +160,13 @@ class RiskAgent:
             logger.exception("RiskAgent[acct=%d]: daily P&L check failed", self._account_id)
             failures.append("Daily P&L check error")
 
-        # Lot sizing + compute final SL/TP price levels
+        # Lot sizing + compute final SL/TP price levels.
+        # Pass mid_price (the zone-touch price GPT used) as the reference for the
+        # GPT sl_distance calculation so the lot sizing is consistent with GPT's
+        # intent even when price moved during the 2–10 s GPT API call.
         volume, final_sl, final_tp, lot_ok, lot_reason = self._compute_lot_and_levels(
-            event.symbol, event.entry, event.stop_loss, event.direction
+            event.symbol, event.entry, event.stop_loss, event.direction,
+            ref_price=event.mid_price,
         )
         if not lot_ok:
             failures.append(lot_reason)
@@ -219,11 +214,16 @@ class RiskAgent:
         entry: float,
         gpt_sl: float,
         direction: str,
+        ref_price: float = 0.0,
     ) -> Tuple[float, float, float, bool, str]:
         """
-        1. Compute raw lot from GPT's sl_distance and SL_USD.
+        1. Compute raw lot from GPT's sl_distance (measured from ref_price, the
+           zone-touch price GPT used) and SL_USD.
         2. Clamp to [LOT_MIN, LOT_MAX] — no sub-min rejection.
         3. Compute final SL/TP price levels from the clamped lot and SL_USD/TP_USD.
+
+        ref_price: the mid_price at zone touch (what GPT used when outputting sl).
+                   Falls back to entry if not provided.
 
         Returns (volume, sl_price, tp_price, ok, reason).
         """
@@ -251,8 +251,11 @@ class RiskAgent:
 
         value_per_unit = tick_value / tick_size  # account-currency loss per 1.0 price unit per lot
 
-        # Step 1: raw lot from GPT's sl_distance
-        gpt_sl_distance = abs(entry - gpt_sl)
+        # Step 1: raw lot from GPT's sl_distance.
+        # Use ref_price (zone-touch price) if available; it's the price GPT saw
+        # when deciding the sl, so the distance is consistent with GPT's intent.
+        price_ref = ref_price if ref_price and ref_price > 0.0 else entry
+        gpt_sl_distance = abs(price_ref - gpt_sl)
         if gpt_sl_distance == 0:
             gpt_sl_distance = 1e-5
 
@@ -276,10 +279,11 @@ class RiskAgent:
             tp_price = entry - tp_price_dist
 
         logger.info(
-            "RiskAgent[acct=%d] lot sizing: SL_USD=%.0f TP_USD=%.0f gpt_sl_dist=%.5f "
+            "RiskAgent[acct=%d] lot sizing: SL_USD=%.0f TP_USD=%.0f "
+            "price_ref=%.5f gpt_sl=%.5f gpt_sl_dist=%.5f "
             "raw_lot=%.5f vol=%.5f sl_dist=%.5f tp_dist=%.5f → sl=%.5f tp=%.5f",
             self._account_id, config.SL_USD, config.TP_USD,
-            gpt_sl_distance, raw_lot, volume,
+            price_ref, gpt_sl, gpt_sl_distance, raw_lot, volume,
             sl_price_dist, tp_price_dist, sl_price, tp_price,
         )
         return volume, sl_price, tp_price, True, "ok"

@@ -157,3 +157,13 @@ SIGNAL_PAUSE_THRESHOLD    = 0.40  # pause new signals if win rate falls below 40
 # ---------------------------------------------------------------------------
 
 TICK_INTERVAL_SEC = float(os.getenv("TICK_INTERVAL_SEC", "2.0"))
+
+# ---------------------------------------------------------------------------
+# Trading-day boundary (broker daily reset)
+# ---------------------------------------------------------------------------
+
+# MT5 brokers reset their trading day at different times (often 17:00 NY = 22:00 UTC).
+# Set this to the broker's daily reset hour in UTC so that get_daily_trade_count()
+# and get_today_realized_pnl() bucket trades by broker day rather than UTC calendar day.
+# Default 0 = UTC midnight (no adjustment).
+TRADING_DAY_RESET_UTC_HOUR = int(os.getenv("TRADING_DAY_RESET_UTC_HOUR", "0"))

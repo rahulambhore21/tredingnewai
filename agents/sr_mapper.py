@@ -110,9 +110,18 @@ class SRMapper:
 
     def _scan_symbol_tf(self, symbol: str, symbol_base: str, tf: str) -> int:
         """
-        Scan a single symbol+timeframe, detect zones, deactivate old DB rows,
-        and publish ZoneEvents for each new zone.
+        Scan a single symbol+timeframe, detect zones, and atomically swap
+        old DB rows for new ones.
+
+        Deactivation happens BEFORE candle fetch so PriceWatcher never sees
+        old zones mixed with new ones (a brief gap with no zones is safer
+        than a window where both coexist and double-fire analysis).
+        This direct DB write is the documented exception to the single-writer
+        rule — sr_mapper owns the zone lifecycle.
         """
+        # Atomically retire old zones before computing new ones.
+        self._db.deactivate_zones_for_symbol(symbol_base, tf)
+
         df = self._client.market.get_candles_latest(
             symbol, tf, count=config.SR_CANDLE_COUNT
         )
@@ -131,8 +140,7 @@ class SRMapper:
         support_zones    = cluster_zones(swing_lows,  "support",    tolerance=config.CLUSTER_TOLERANCE)
         all_zones        = resistance_zones + support_zones
 
-        # Record scan start before publishing — deactivate only zones older than this
-        scan_start = datetime.now(tz=timezone.utc).isoformat()
+        refreshed_at = datetime.now(tz=timezone.utc)
 
         count = 0
         for z in all_zones:
@@ -152,11 +160,12 @@ class SRMapper:
             except Exception:
                 logger.exception("Failed to publish ZoneEvent for %s %s", symbol_base, tf)
 
+        # Publish for audit-log purposes; deactivation already happened above.
         self._bus.publish(ZonesRefreshedEvent(
             symbol=symbol_base,
             timeframe=tf,
-            refreshed_at=datetime.now(tz=timezone.utc),
-            zones_deactivated_before=datetime.fromisoformat(scan_start),
+            refreshed_at=refreshed_at,
+            zones_deactivated_before=refreshed_at,
         ))
 
         logger.info(

@@ -20,6 +20,7 @@ import config
 from core.database import Database
 from core.event_bus import EventBus
 from core.db_consumer import DBConsumer
+from core.mt5_lock import make_thread_safe
 from core.signal_tracker import SignalTracker
 from agents.sr_mapper import SRMapper
 from agents.price_watcher import PriceWatcher
@@ -51,11 +52,40 @@ def _configure_logging(account_id: int) -> None:
     logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 
+def _fetch_close_deal(mt5_client, position_id: int):
+    """
+    Look up the closing deal for *position_id* in MT5 history (last 7 days).
+    Returns (close_price, realized_pnl) or (None, 0.0) if not found.
+    """
+    logger = logging.getLogger(__name__)
+    try:
+        from datetime import timedelta
+        from_date = datetime.utcnow() - timedelta(days=7)
+        df = mt5_client.history.get_deals_as_dataframe(from_date=from_date)
+        if df is None or len(df) == 0:
+            return None, 0.0
+        if "position_id" not in df.columns or "entry" not in df.columns:
+            return None, 0.0
+        exit_df = df[
+            (df["position_id"] == position_id) & (df["entry"].isin([1, 2]))
+        ]
+        if len(exit_df) == 0:
+            return None, 0.0
+        row = exit_df.iloc[-1]
+        close_price  = float(row["price"])  if "price"  in row.index else None
+        realized_pnl = float(row["profit"]) if "profit" in row.index else 0.0
+        return close_price, realized_pnl
+    except Exception:
+        logger.exception("Could not fetch close deal for position %d", position_id)
+        return None, 0.0
+
+
 def reconcile_stale_trades(db: "Database", mt5_client, account_id: int) -> None:
     """
     Runs once on startup. Finds trades that the DB thinks are still open
     (close_time IS NULL) but no longer exist as live MT5 positions, then
-    marks them closed so get_open_trade_count() returns an accurate count.
+    records them as closed — fetching the actual P&L from MT5 history so the
+    daily loss-limit check stays accurate after a restart.
     """
     logger = logging.getLogger(__name__)
 
@@ -81,16 +111,20 @@ def reconcile_stale_trades(db: "Database", mt5_client, account_id: int) -> None:
                 live_ids = {int(x) for x in positions_df[id_col].tolist()}
                 break
 
+    reconciled = 0
     for order_id in stale_order_ids:
         if order_id not in live_ids:
-            db.update_trade_close(order_id, close_price=0.0, realized_pnl=0.0)
+            close_price, realized_pnl = _fetch_close_deal(mt5_client, order_id)
+            db.update_trade_close(order_id, close_price=close_price, realized_pnl=realized_pnl)
             logger.info(
                 "Worker[acct=%d]: reconciled stale DB trade order_id=%s "
-                "— closed in MT5 but not recorded in DB.",
+                "— close_price=%s pnl=%.2f",
                 account_id, order_id,
+                f"{close_price:.5f}" if close_price else "unknown",
+                realized_pnl,
             )
+            reconciled += 1
 
-    reconciled = len([oid for oid in stale_order_ids if oid not in live_ids])
     logger.info(
         "Worker[acct=%d]: reconcile complete — %d stale trade(s) closed, "
         "%d still live in MT5.",
@@ -147,7 +181,9 @@ def main() -> None:
         "server":   acct["server"],
         "path":     terminal_path or None,
     }
-    client = MT5Client(mt5_cfg)
+    # Wrap with thread-safe proxy so all agents can share one client without
+    # data races. The MT5 Python API is not thread-safe on its own.
+    client = make_thread_safe(MT5Client(mt5_cfg))
 
     logger.info("Worker[acct=%d]: connecting to MT5 terminal …", account_id)
     try:
@@ -162,7 +198,10 @@ def main() -> None:
     db             = Database(db_path)
     bus            = EventBus()
     consumer       = DBConsumer(db, bus)
-    signal_tracker = SignalTracker()
+    # Each worker gets its own state file so BUY and SELL accounts don't
+    # cross-contaminate each other's win-rate history, and concurrent writes
+    # to a shared file are avoided.
+    signal_tracker = SignalTracker(state_file=f"signal_tracker_state_{account_id}.json")
 
     reconcile_stale_trades(db, client, account_id)
 

@@ -33,7 +33,9 @@ class PriceWatcher:
         zones_ready: threading.Event from SRMapper — watcher blocks until set.
     """
 
-    _TF_PRIORITY = {"M5": 0, "M15": 1}
+    # M15 is the higher timeframe and represents stronger structural levels;
+    # prefer it when a M5 zone and M15 zone cluster at the same price.
+    _TF_PRIORITY = {"M15": 0, "M5": 1}
 
     def __init__(
         self,

@@ -8,7 +8,7 @@ never block the PriceWatcher tick loop.
 For each ZoneTouchEvent:
   1. Pre-filters: daily trade count, account direction vs zone type
   2. Fetches 100 candles on both M5 and M15 for event.symbol
-  3. Computes EMA 20/50, RSI 14, MACD on both timeframes
+  3. Computes EMA 21/50, RSI 14, MACD on both timeframes
   4. Passes M15 data (trend) + M5 data (entry confirmation) to GPT-4o
   5. GPT-4o returns: direction (BUY/SELL/NONE), sl, tp, confidence (0-10), reason
   6. If direction is NONE or doesn't match account direction, signal is dropped
@@ -21,7 +21,7 @@ import logging
 import os
 import threading
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from openai import OpenAI, APITimeoutError as _OAITimeout, RateLimitError as _OAIRateLimit
 
@@ -79,9 +79,6 @@ class AnalysisAgent:
         self._direction      = str(account_config["direction"]).upper()
         self._oai            = openai_client or OpenAI(api_key=config.OPENAI_API_KEY)
         self._signal_tracker = signal_tracker
-
-        self._last_analysis: Dict[Tuple[str, int], float] = {}
-        self._analysis_cooldown_sec = 30.0
 
         self._Q_MAXSIZE = 10
         self._q_cond = threading.Condition()
@@ -185,33 +182,19 @@ class AnalysisAgent:
         logger.info("AnalysisAgent processing loop stopped.")
 
     def _handle_zone_touch(self, event: ZoneTouchEvent) -> None:
-        now = time.time()
-        cooldown_key: Tuple[str, int] = (event.symbol, event.zone_id or 0)
-        last = self._last_analysis.get(cooldown_key, 0.0)
-        if (now - last) < self._analysis_cooldown_sec:
-            logger.debug(
-                "AnalysisAgent: %s zone_id=%s in cooldown (%.0fs remaining), skipping",
-                event.symbol, event.zone_id,
-                self._analysis_cooldown_sec - (now - last),
-            )
-            return
-
-        self._last_analysis[cooldown_key] = now
+        # PriceWatcher enforces a 15-minute per-zone cooldown before re-emitting,
+        # so no additional cooldown is needed here.
         logger.info(
             "AnalysisAgent handling ZoneTouchEvent: %s %s center=%.5f",
             event.symbol, event.zone_type, event.price_center,
         )
-        self._process_zone_touch(event, cooldown_key)
+        self._process_zone_touch(event)
 
     # ------------------------------------------------------------------
     # Core processing
     # ------------------------------------------------------------------
 
-    def _process_zone_touch(
-        self,
-        event: ZoneTouchEvent,
-        cooldown_key: Tuple[str, int],
-    ) -> None:
+    def _process_zone_touch(self, event: ZoneTouchEvent) -> None:
         symbol_base = event.symbol
         symbol = config.resolve_symbol(symbol_base)
 
@@ -424,16 +407,20 @@ class AnalysisAgent:
             logger.warning("AnalysisAgent: invalid price levels from GPT-4o — discarding")
             return
 
-        if direction == "BUY" and not (sl < entry < tp):
+        # Validate geometry against the zone-touch price (event.mid_price), which is
+        # the price GPT used when computing sl/tp. Using the refreshed entry here
+        # causes false rejections when price moves during the 2–10 s GPT call.
+        ref_price = event.mid_price
+        if direction == "BUY" and not (sl < ref_price < tp):
             logger.warning(
-                "AnalysisAgent: invalid BUY geometry SL=%.5f entry=%.5f TP=%.5f — discarding",
-                sl, entry, tp,
+                "AnalysisAgent: invalid BUY geometry SL=%.5f ref=%.5f TP=%.5f — discarding",
+                sl, ref_price, tp,
             )
             return
-        if direction == "SELL" and not (tp < entry < sl):
+        if direction == "SELL" and not (tp < ref_price < sl):
             logger.warning(
-                "AnalysisAgent: invalid SELL geometry TP=%.5f entry=%.5f SL=%.5f — discarding",
-                tp, entry, sl,
+                "AnalysisAgent: invalid SELL geometry TP=%.5f ref=%.5f SL=%.5f — discarding",
+                tp, ref_price, sl,
             )
             return
 
